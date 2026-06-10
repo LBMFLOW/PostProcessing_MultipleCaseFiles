@@ -7,10 +7,18 @@ from copy import deepcopy
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QFileDialog, QMainWindow, QScrollArea, QSplitter, QStatusBar
+from PyQt6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QMainWindow,
+    QScrollArea,
+    QSplitter,
+    QStatusBar,
+)
 
 from simpost.backend.controller import BackendController
 from simpost.ui.plot_models import CurveState, CurveStyle, PlotStyleState
+from simpost.ui.widgets.batch_export_dialog import BatchExportDialog
 from simpost.ui.widgets.controls_panel import ControlsPanel
 from simpost.ui.widgets.plot_panel import PlotPanel
 
@@ -122,6 +130,7 @@ class MainWindow(QMainWindow):
         self.controls_panel.plot_style_changed.connect(self._update_plot_style)
         self.controls_panel.reset_all_styles_requested.connect(self._reset_all_styles)
         self.controls_panel.apply_uniform_style_requested.connect(self._apply_uniform_style)
+        self.controls_panel.batch_export_requested.connect(self._open_batch_export_dialog)
         self.controls_panel.selection_changed.connect(self._update_selection_status)
         self.controls_panel.file_highlighted.connect(self._parse_highlighted_file_headers)
         self.controls_panel.header_config_changed.connect(self._parse_selected_file_headers)
@@ -296,8 +305,13 @@ class MainWindow(QMainWindow):
             label=curve_label,
             source_file=selection["filename"],
             source_path=selection["filepath"],
+            x_source_param=selection["x_param"],
+            y_source_param=selection["y_param"],
             x_param=selection["x_display"],
             y_param=selection["y_display"],
+            name_row=selection["name_row"],
+            unit_row=selection["unit_row"],
+            data_start_row=selection["data_start_row"],
             x=list(plot_data["x"]),
             y=list(plot_data["y"]),
             x_label=plot_data["x_label"],
@@ -369,3 +383,95 @@ class MainWindow(QMainWindow):
         if curve_id is None:
             return None
         return next((curve for curve in self._curves if curve.id == curve_id), None)
+
+    def _open_batch_export_dialog(self) -> None:
+        template_curve = self._curve_by_id(self._selected_curve_id)
+        if template_curve is None:
+            self.statusBar().showMessage("Select a template curve before batch export.")
+            return
+
+        selected_files = self.controls_panel.selected_files()
+        if not selected_files:
+            self.statusBar().showMessage("Select at least one file before batch export.")
+            return
+
+        dialog = BatchExportDialog(self)
+        dialog.start_requested.connect(lambda: self._run_batch_export(dialog))
+        dialog.exec()
+
+    def _run_batch_export(self, dialog: BatchExportDialog) -> None:
+        output_directory = dialog.output_directory()
+        filename_pattern = dialog.filename_pattern()
+        if not output_directory:
+            dialog.set_error("Choose an output directory before starting export.")
+            return
+        if not filename_pattern:
+            dialog.set_error("Enter a filename pattern before starting export.")
+            return
+
+        template_curve = self._curve_by_id(self._selected_curve_id)
+        if template_curve is None:
+            dialog.set_error("Select a template curve before starting export.")
+            return
+
+        selected_files = self.controls_panel.selected_files()
+        if not selected_files:
+            dialog.set_error("Select at least one file before starting export.")
+            return
+
+        dialog.prepare_for_export(len(selected_files))
+        plot_template = self._batch_export_template(
+            template_curve,
+            selected_files,
+            output_directory,
+            filename_pattern,
+            dialog.auto_axis_ranges_per_file(),
+        )
+
+        def update_progress(completed: int, total: int, _result: dict) -> None:
+            dialog.update_progress(completed, total)
+            QApplication.processEvents()
+
+        results = self.backend.batch_export_svg(plot_template, update_progress)
+        dialog.set_summary(results)
+        exported = sum(1 for result in results if result["success"])
+        self.statusBar().showMessage(f"Batch export complete: {exported} of {len(results)} exported.")
+
+    def _batch_export_template(
+        self,
+        template_curve: CurveState,
+        selected_files: list[dict],
+        output_directory: str,
+        filename_pattern: str,
+        auto_axis_ranges_per_file: bool,
+    ) -> dict:
+        plot_style = self._plot_style.to_dict()
+        if auto_axis_ranges_per_file:
+            plot_style["x_range"]["auto"] = True
+            plot_style["y_range"]["auto"] = True
+        else:
+            plot_style.update(self.plot_panel.axis_ranges())
+
+        return {
+            "files": [
+                {"path": str(file_info["path"]), "filename": str(file_info["filename"])}
+                for file_info in selected_files
+            ],
+            "output_directory": output_directory,
+            "filename_pattern": filename_pattern,
+            "auto_axis_ranges_per_file": auto_axis_ranges_per_file,
+            "x_param": template_curve.x_source_param,
+            "y_param": template_curve.y_source_param,
+            "x_display": template_curve.x_param,
+            "y_display": template_curve.y_param,
+            "x_label": template_curve.x_label,
+            "y_label": template_curve.y_label,
+            "curve_label": template_curve.label,
+            "name_row": template_curve.name_row,
+            "unit_row": template_curve.unit_row,
+            "data_start_row": template_curve.data_start_row,
+            "curve_style": template_curve.style.to_dict(),
+            "plot_style": plot_style,
+            "figure_size_inches": [8.0, 5.0],
+            "dpi": 100,
+        }

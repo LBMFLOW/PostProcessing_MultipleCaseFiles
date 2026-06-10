@@ -35,6 +35,7 @@ class ControlsPanel(QWidget):
     add_curve_requested = pyqtSignal()
     add_selected_files_curves_requested = pyqtSignal()
     apply_uniform_style_requested = pyqtSignal()
+    batch_export_requested = pyqtSignal()
     curve_selected = pyqtSignal(str)
     curve_label_changed = pyqtSignal(str, str)
     curve_delete_requested = pyqtSignal(str)
@@ -374,12 +375,16 @@ class ControlsPanel(QWidget):
         self.apply_uniform_style_button = QPushButton("Apply uniform style to all curves")
         self.apply_uniform_style_button.clicked.connect(self.apply_uniform_style_requested.emit)
 
+        self.batch_export_button = QPushButton("Batch Export")
+        self.batch_export_button.clicked.connect(self.batch_export_requested.emit)
+
         form.addRow("Font size", self.font_size_spin)
         form.addRow("Grid", self.grid_checkbox)
         form.addRow("Grid color", self.grid_color_button)
         form.addRow("Grid opacity", self.grid_opacity_slider)
         form.addRow("", self.reset_styles_button)
         form.addRow("", self.apply_uniform_style_button)
+        form.addRow("", self.batch_export_button)
         return group
 
     def directory_path(self) -> str:

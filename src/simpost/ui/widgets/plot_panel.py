@@ -112,6 +112,14 @@ class PlotPanel(QWidget):
         if not plot_style.y_range.auto and plot_style.y_range.minimum < plot_style.y_range.maximum:
             self.axes.set_ylim(plot_style.y_range.minimum, plot_style.y_range.maximum)
 
+    def axis_ranges(self) -> dict:
+        x_min, x_max = self.axes.get_xlim()
+        y_min, y_max = self.axes.get_ylim()
+        return {
+            "x_range": {"auto": False, "minimum": float(x_min), "maximum": float(x_max)},
+            "y_range": {"auto": False, "minimum": float(y_min), "maximum": float(y_max)},
+        }
+
     def _refresh_legend(self) -> None:
         self._legend_artist_to_line.clear()
         legend = self.axes.legend()

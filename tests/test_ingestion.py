@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from simpost.backend.export import batch_export_svg
 from simpost.backend.ingestion import get_plot_data, parse_file_headers, scan_directory
 
 
@@ -173,6 +174,80 @@ class GetPlotDataTests(unittest.TestCase):
                     unit_row=1,
                     data_start_row=2,
                 )
+
+
+class BatchExportSvgTests(unittest.TestCase):
+    def test_exports_one_svg_per_file(self) -> None:
+        with temporary_directory() as directory:
+            root = Path(directory)
+            output = root / "out"
+            file_paths = []
+            for index in range(2):
+                path = root / f"case_{index}.dat"
+                path.write_text(
+                    "time,pressure\ns,Pa\n0,100\n1,110\n",
+                    encoding="utf-8",
+                )
+                file_paths.append(path)
+
+            template = _batch_template(file_paths, output)
+            results = batch_export_svg(template)
+
+            self.assertEqual([result["success"] for result in results], [True, True])
+            for result in results:
+                svg_path = Path(result["output_path"])
+                self.assertTrue(svg_path.exists())
+                self.assertIn("<svg", svg_path.read_text(encoding="utf-8"))
+
+    def test_reports_export_failures_per_file(self) -> None:
+        with temporary_directory() as directory:
+            root = Path(directory)
+            output = root / "out"
+            good = root / "good.dat"
+            bad = root / "bad.dat"
+            good.write_text("time,pressure\ns,Pa\n0,100\n", encoding="utf-8")
+            bad.write_text("time,temperature\ns,K\n0,300\n", encoding="utf-8")
+
+            results = batch_export_svg(_batch_template([good, bad], output))
+
+        self.assertEqual(results[0]["success"], True)
+        self.assertEqual(results[1]["success"], False)
+        self.assertIn("Parameter not found", results[1]["error"])
+
+
+def _batch_template(file_paths: list[Path], output: Path) -> dict:
+    return {
+        "files": [{"path": str(path), "filename": path.name} for path in file_paths],
+        "output_directory": str(output),
+        "filename_pattern": "{casename}_pressure_vs_time.svg",
+        "auto_axis_ranges_per_file": True,
+        "x_param": "time",
+        "y_param": "pressure",
+        "x_display": "time",
+        "y_display": "pressure",
+        "x_label": "time (s)",
+        "y_label": "pressure (Pa)",
+        "curve_label": "pressure",
+        "name_row": 0,
+        "unit_row": 1,
+        "data_start_row": 2,
+        "figure_size_inches": [6.0, 4.0],
+        "dpi": 100,
+        "curve_style": {
+            "color": "#0072B2",
+            "line_style": "dashed",
+            "line_weight": 2.0,
+            "marker_style": "circle",
+            "marker_size": 5.0,
+            "opacity": 0.8,
+        },
+        "plot_style": {
+            "x_range": {"auto": True, "minimum": 0.0, "maximum": 1.0},
+            "y_range": {"auto": True, "minimum": 0.0, "maximum": 1.0},
+            "font_size": 10,
+            "grid": {"enabled": True, "color": "#b0b0b0", "opacity": 0.3},
+        },
+    }
 
 
 if __name__ == "__main__":

@@ -64,6 +64,11 @@ class BackendController(BackendAPI):
     def export_plot_svg(self, request: ExportSvgRequest) -> ExportResult:
         raise NotImplementedError
 
+    def batch_export_svg(self, plot_template: dict, progress_callback=None) -> list[dict]:
+        from simpost.backend.export import batch_export_svg
+
+        return batch_export_svg(plot_template, progress_callback)
+
     def save_session(self, request: SaveSessionRequest) -> SessionResult:
         raise NotImplementedError
 

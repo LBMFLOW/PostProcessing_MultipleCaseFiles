@@ -2,7 +2,7 @@
 
 The PyQt6 frontend calls the backend in process through a typed Python interface. These are not HTTP endpoints. They are the planned method calls that the UI layer should depend on.
 
-All calls are currently scaffolded only. Implementations should live behind `BackendController` and preserve this boundary so UI code does not read simulation files directly.
+Implemented calls live behind `BackendController` and preserve this boundary so UI code does not read simulation files directly. Some future session and dataset calls remain scaffolded.
 
 ## Data Types
 
@@ -117,6 +117,35 @@ Curve and style state:
 - `PlotStyleState`: X/Y range state, font size, and grid style.
 - These are defined as Python dataclasses in `src/simpost/ui/plot_models.py`.
 - Per-curve styles, axis ranges, font size, and grid state redraw the plot immediately when changed.
+
+### `batch_export_svg(plot_template: dict, progress_callback=None) -> list[dict]`
+
+Exports one SVG file per selected case file using a serialized plot template. The backend renders with Matplotlib's SVG backend and saves each figure with `format="svg"` and `bbox_inches="tight"`.
+
+Template fields:
+
+- `files`: list of selected file dictionaries. Each item must include `path` and `filename`.
+- `output_directory`: destination directory for generated SVG files.
+- `filename_pattern`: output filename pattern. Supported tokens are `{casename}`, `{filename}`, `{x_param}`, and `{y_param}`.
+- `auto_axis_ranges_per_file`: when true, Matplotlib autos-scales each exported file. When false, the serialized template ranges are applied.
+- `x_param`, `y_param`: source header names used to load data from every file.
+- `x_display`, `y_display`: display names used for filename tokens.
+- `x_label`, `y_label`: axis labels, usually formatted as `Parameter (Unit)`.
+- `curve_label`: legend label for the exported curve.
+- `name_row`, `unit_row`, `data_start_row`: parser row configuration from the template file.
+- `curve_style`: serialized `CurveStyle` with `color`, `line_style`, `line_weight`, `marker_style`, `marker_size`, and `opacity`.
+- `plot_style`: serialized `PlotStyleState` with `x_range`, `y_range`, `font_size`, and `grid`.
+- `figure_size_inches`: two-value width/height list.
+- `dpi`: figure DPI.
+
+Each result dictionary contains:
+
+- `filepath`: source case file path.
+- `output_path`: destination SVG path that was attempted.
+- `success`: true when the SVG was written.
+- `error`: empty string on success, otherwise the failure reason.
+
+The optional `progress_callback` receives `(completed: int, total: int, result: dict)` after each file finishes. The Qt dialog uses this to update the progress bar.
 
 ### `get_plot_defaults(dataset_id: str) -> PlotDefaults`
 

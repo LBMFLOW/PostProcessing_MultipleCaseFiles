@@ -24,8 +24,13 @@ class CurveState:
     label: str
     source_file: str
     source_path: str
+    x_source_param: str
+    y_source_param: str
     x_param: str
     y_param: str
+    name_row: int
+    unit_row: int | None
+    data_start_row: int
     x: list[float]
     y: list[float]
     x_label: str
@@ -43,12 +48,18 @@ class AxisRangeState:
     minimum: float = 0.0
     maximum: float = 1.0
 
+    def to_dict(self) -> dict:
+        return asdict(self)
+
 
 @dataclass
 class GridStyle:
     enabled: bool = True
     color: str = "#b0b0b0"
     opacity: float = 0.3
+
+    def to_dict(self) -> dict:
+        return asdict(self)
 
 
 @dataclass
@@ -65,3 +76,6 @@ class PlotStyleState:
     @classmethod
     def defaults(cls) -> "PlotStyleState":
         return cls(x_range=AxisRangeState(), y_range=AxisRangeState(), grid=GridStyle())
+
+    def to_dict(self) -> dict:
+        return asdict(self)

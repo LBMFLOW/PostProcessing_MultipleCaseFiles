@@ -39,26 +39,34 @@ The dependency versions are pinned in `pyproject.toml` and `requirements.txt` to
 
 ```text
 .
-├── README.md
-├── docs/
-│   └── API_CONTRACT.md
-├── pyproject.toml
-├── requirements.txt
-└── src/
-    └── simpost/
-        ├── __init__.py
-        ├── app.py
-        ├── backend/
-        │   ├── __init__.py
-        │   ├── api_contract.py
-        │   └── controller.py
-        └── ui/
-            ├── __init__.py
-            ├── main_window.py
-            └── widgets/
-                ├── __init__.py
-                ├── controls_panel.py
-                └── plot_panel.py
+|-- README.md
+|-- docs/
+|   `-- API_CONTRACT.md
+|-- pyproject.toml
+|-- requirements.txt
+|-- scripts/
+|   `-- smoke_test_qt.py
+|-- tests/
+|   `-- test_ingestion.py
+`-- src/
+    `-- simpost/
+        |-- __init__.py
+        |-- app.py
+        |-- backend/
+        |   |-- __init__.py
+        |   |-- api_contract.py
+        |   |-- controller.py
+        |   |-- export.py
+        |   `-- ingestion.py
+        `-- ui/
+            |-- __init__.py
+            |-- main_window.py
+            |-- plot_models.py
+            `-- widgets/
+                |-- __init__.py
+                |-- batch_export_dialog.py
+                |-- controls_panel.py
+                `-- plot_panel.py
 ```
 
 ## Setup
@@ -110,10 +118,11 @@ This project currently defines:
 - Multi-curve plotting from multiple selected files or multiple Y variables from one file.
 - A curve list with editable labels and delete controls that drives reactive plot redraws.
 - Axis range, per-curve style, and global plot style controls backed by structured dataclasses.
+- Batch SVG export that applies one template curve/style to every selected case file.
 - A typed backend API boundary.
 - The planned frontend/backend contract.
 
-Filtering, session persistence, and explicit SVG export workflow logic are not implemented yet. Matplotlib's built-in toolbar supports saving figures, including SVG output.
+Filtering and session persistence are not implemented yet. Matplotlib's built-in toolbar also supports saving the current interactive figure.
 
 ## Plotting Workflow
 
@@ -134,6 +143,18 @@ The Style panel includes:
 - Reset all styles and apply-uniform-style actions.
 
 Curve and plot styling state is defined in `src/simpost/ui/plot_models.py` as Python dataclasses so it can be serialized and reapplied by later save/export workflows.
+
+## Batch Export
+
+Batch export uses the currently selected curve as the plot template. Select the files to export in the file list, configure the template curve and plot style, then click `Batch Export`.
+
+The export dialog asks for:
+
+- Output directory.
+- Filename pattern, with tokens such as `{casename}`, `{filename}`, `{x_param}`, and `{y_param}`.
+- Whether each exported SVG should use auto axis ranges or lock to the template plot ranges.
+
+The backend renders each selected file with Matplotlib's SVG backend and returns a per-file success/failure summary.
 
 ## Backend API Contract
 

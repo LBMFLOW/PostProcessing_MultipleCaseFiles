@@ -165,6 +165,9 @@ class BackendAPI(Protocol):
     def export_plot_svg(self, request: ExportSvgRequest) -> ExportResult:
         """Export the requested plot state to SVG."""
 
+    def batch_export_svg(self, plot_template: dict, progress_callback=None) -> list[dict]:
+        """Export one SVG per selected file from a serialized plot template."""
+
     def save_session(self, request: SaveSessionRequest) -> SessionResult:
         """Persist the current session."""
 
