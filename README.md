@@ -24,7 +24,7 @@ If GPL/commercial licensing is a concern for PyQt6, the same architecture can be
 
 ## Local Verification
 
-PyQt6 was smoke-tested on this computer in a project-local virtual environment.
+PyQt6 was smoke-tested in a project-local virtual environment.
 
 Verified versions:
 
