@@ -142,6 +142,9 @@ class MainWindow(QMainWindow):
         self.controls_panel.add_selected_files_curves_requested.connect(
             self._add_curves_for_selected_files
         )
+        self.controls_panel.reset_plot_and_add_curves_requested.connect(
+            self._reset_plot_and_add_curves
+        )
         self.controls_panel.curve_label_changed.connect(self._rename_curve)
         self.controls_panel.curve_delete_requested.connect(self._delete_curve)
         self.controls_panel.curve_highlighted.connect(self._preview_curve)
@@ -355,11 +358,14 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage(f"Parsed headers for {file_info['filename']}.")
 
-    def _add_curve(self) -> None:
+    def _add_curve(self, reset_plot: bool = False) -> None:
         selections = self.controls_panel.plot_selections_for_current_file()
         if not selections:
             self.statusBar().showMessage("Select a file and plot axes before adding a curve.")
             return
+
+        if reset_plot:
+            self._reset_plot_state_for_new_parameters()
 
         added = 0
         for selection in selections:
@@ -369,9 +375,14 @@ class MainWindow(QMainWindow):
 
         if added:
             self._refresh_curve_views()
-            self.statusBar().showMessage(f"Added {added} curve(s).")
+            if reset_plot:
+                self.statusBar().showMessage(f"Reset plot area and added {added} curve(s).")
+            else:
+                self.statusBar().showMessage(f"Added {added} curve(s).")
+        elif reset_plot:
+            self._refresh_curve_views()
 
-    def _add_curves_for_selected_files(self) -> None:
+    def _add_curves_for_selected_files(self, reset_plot: bool = False) -> None:
         base_selection = self.controls_panel.plot_selection()
         selected_files = self.controls_panel.selected_files()
         if base_selection is None:
@@ -380,6 +391,9 @@ class MainWindow(QMainWindow):
         if not selected_files:
             self.statusBar().showMessage("Select at least one file before adding curves.")
             return
+
+        if reset_plot:
+            self._reset_plot_state_for_new_parameters()
 
         added = 0
         failures: list[str] = []
@@ -421,8 +435,27 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(
                 f"Added {added} curve(s). {len(failures)} selected file(s) could not be plotted."
             )
+        elif reset_plot:
+            self.statusBar().showMessage(f"Reset plot area and added {added} curve(s).")
         else:
             self.statusBar().showMessage(f"Added {added} curve(s) from selected files.")
+
+    def _reset_plot_and_add_curves(self) -> None:
+        if len(self.controls_panel.selected_files()) > 1:
+            self._add_curves_for_selected_files(reset_plot=True)
+        else:
+            self._add_curve(reset_plot=True)
+
+    def _reset_plot_state_for_new_parameters(self) -> None:
+        self._curves = []
+        self._selected_curve_id = None
+        self._next_curve_id = 1
+        self.plot_panel.reset_curve_visibility()
+        self._plot_style.x_range.auto = True
+        self._plot_style.y_range.auto = True
+        self._plot_style.x_axis_title = ""
+        self._plot_style.y_axis_title = ""
+        self.controls_panel.set_plot_style(self._plot_style)
 
     def _add_curve_from_selection(self, selection: dict, curve_label: str) -> bool:
         try:

@@ -42,6 +42,7 @@ class ControlsPanel(QWidget):
     scan_requested = pyqtSignal()
     add_curve_requested = pyqtSignal()
     add_selected_files_curves_requested = pyqtSignal()
+    reset_plot_and_add_curves_requested = pyqtSignal()
     apply_uniform_style_requested = pyqtSignal()
     batch_export_requested = pyqtSignal()
     curve_highlighted = pyqtSignal(str)
@@ -247,6 +248,12 @@ class ControlsPanel(QWidget):
         self.add_selected_files_button.setEnabled(False)
         self.add_selected_files_button.clicked.connect(self.add_selected_files_curves_requested.emit)
 
+        self.reset_plot_and_add_button = QPushButton("Reset plot area and add curves")
+        self.reset_plot_and_add_button.setEnabled(False)
+        self.reset_plot_and_add_button.clicked.connect(
+            self.reset_plot_and_add_curves_requested.emit
+        )
+
         form = QFormLayout()
         form.addRow("X", self.x_axis_selector)
         form.addRow("Y", self.y_axis_selector)
@@ -255,6 +262,7 @@ class ControlsPanel(QWidget):
         layout.addWidget(self.selected_y_table)
         layout.addWidget(self.add_curve_button)
         layout.addWidget(self.add_selected_files_button)
+        layout.addWidget(self.reset_plot_and_add_button)
         return group
 
     def _build_curve_list_group(self) -> QGroupBox:
@@ -897,6 +905,7 @@ class ControlsPanel(QWidget):
             self.add_y_variable_button.setEnabled(False)
             self.add_curve_button.setEnabled(False)
             self.add_selected_files_button.setEnabled(False)
+            self.reset_plot_and_add_button.setEnabled(False)
             self._clear_selected_y_variables()
             return
 
@@ -928,6 +937,7 @@ class ControlsPanel(QWidget):
         self.add_y_variable_button.setEnabled(True)
         self.add_curve_button.setEnabled(True)
         self.add_selected_files_button.setEnabled(True)
+        self.reset_plot_and_add_button.setEnabled(True)
 
     def plot_selections_for_current_file(self) -> list[dict]:
         y_items = self._selected_y_axis_data()

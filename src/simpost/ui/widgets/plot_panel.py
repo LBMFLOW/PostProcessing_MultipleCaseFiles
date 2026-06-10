@@ -88,6 +88,9 @@ class PlotPanel(QWidget):
         self.axes.grid(True, alpha=0.3)
         self.canvas.draw_idle()
 
+    def reset_curve_visibility(self) -> None:
+        self._curve_visibility.clear()
+
     def render_curves(
         self,
         curves: list[CurveState],

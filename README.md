@@ -134,6 +134,8 @@ The Plot Configuration panel supports two multi-curve modes:
 - Multiple selected files: choose one X parameter and one Y parameter, check files in the file list, then use `Add curves for all selected files`.
 - Multiple Y variables: choose one highlighted file, choose an X parameter, add one or more Y variables with `+ Add Y variable`, then use `Add curve(s)`.
 
+Use `Reset plot area and add curves` after changing X/Y parameters when you want a new figure instead of adding the new curves to the existing plot. This clears current curves, resets X/Y ranges to Auto, clears X/Y title overrides, and then adds curves using the current selection.
+
 Use `Select all files` above the file list to check or uncheck large batches at once. Header Configuration can optionally read default curve-label prefix text from a user-selected row in each data file. A single non-empty label cell is reused for every plotted variable from that file.
 
 The app remembers the last directory, extension text, parameter row, units row setting, curve-label row setting, and curve-label formula when it is closed and restores them the next time it starts.
