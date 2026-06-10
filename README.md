@@ -105,6 +105,8 @@ Or run the module directly:
 python -m simpost.app
 ```
 
+On Windows, you can also double-click `run_app.bat` from the repository root.
+
 ## Current Scope
 
 This project currently defines:
