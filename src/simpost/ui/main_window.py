@@ -275,6 +275,7 @@ class MainWindow(QMainWindow):
                         base_selection["y_display"],
                         str(file_info["filename"]),
                         base_selection["curve_label_formula"],
+                        str(file_info["filename"]),
                     ),
                 }
                 if self._add_curve_from_selection(selection, str(selection["curve_label"])):
@@ -413,12 +414,19 @@ class MainWindow(QMainWindow):
         parameter: str,
         fallback: str,
         formula: str,
+        file_name: str,
     ) -> str:
         labels = header_info.get("plot_labels", [])
         curve_label = ""
         if 0 <= column_index < len(labels):
             curve_label = str(labels[column_index]).strip()
-        return format_curve_label(formula, curve_label, parameter, fallback)
+        return format_curve_label(
+            formula,
+            curve_label,
+            parameter,
+            fallback,
+            file_name=file_name,
+        )
 
     def _curve_by_id(self, curve_id: str | None) -> CurveState | None:
         if curve_id is None:

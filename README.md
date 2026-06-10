@@ -135,7 +135,7 @@ The Plot Configuration panel supports two multi-curve modes:
 
 Use `Select all files` above the file list to check or uncheck large batches at once. Header Configuration can optionally read default curve-label prefix text from a user-selected row in each data file. A single non-empty label cell is reused for every plotted variable from that file.
 
-Curve labels are built from the curve label formula. The default formula is `('curve_label'-{'|','.trn'}+"_"+'parameter')`, which removes `|` and `.trn` from the label-row value, adds `_`, then adds the selected parameter name.
+Curve labels are built from the curve label formula. The formula can use `curve_label`, `parameter`, and `file_name`. The default formula is `('curve_label'-{'|','.trn'}+"_"+'parameter')`, which removes `|` and `.trn` from the label-row value, adds `_`, then adds the selected parameter name. Use a formula such as `('file_name'-{'.trn'}+"_"+'parameter')` to build labels from the case data filename instead.
 
 For GT-style files with a first-line case header followed by parameter names and units, use Parameter row `2`, units row `3`, and curve label row `1`.
 

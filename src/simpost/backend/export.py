@@ -125,7 +125,7 @@ def _export_one_file(plot_template: dict, file_info: dict, output_directory: Pat
         plot_data["y_label"] = str(
             plot_style.get("y_axis_title") or plot_template.get("y_label") or plot_data["y_label"]
         )
-        plot_data["curve_label"] = _curve_label(plot_template, header_info)
+        plot_data["curve_label"] = _curve_label(plot_template, header_info, file_info)
         _save_svg(plot_template, plot_data, output_path)
         return {"filepath": filepath, "output_path": str(output_path), "success": True, "error": ""}
     except Exception as exc:
@@ -257,7 +257,7 @@ def _legend_kwargs(
     return kwargs
 
 
-def _curve_label(plot_template: dict, header_info: dict) -> str:
+def _curve_label(plot_template: dict, header_info: dict, file_info: dict) -> str:
     label_row = plot_template.get("label_row")
     curve_label = ""
     if label_row is not None:
@@ -265,11 +265,13 @@ def _curve_label(plot_template: dict, header_info: dict) -> str:
         labels = header_info.get("plot_labels", [])
         if 0 <= column_index < len(labels):
             curve_label = str(labels[column_index]).strip()
+    file_name = str(file_info.get("filename") or Path(str(file_info["path"])).name)
     return format_curve_label(
         str(plot_template.get("curve_label_formula") or DEFAULT_CURVE_LABEL_FORMULA),
         curve_label=curve_label,
         parameter=str(plot_template.get("y_display") or plot_template["y_param"]),
         fallback=str(plot_template.get("curve_label") or plot_template["y_label"]),
+        file_name=file_name,
     )
 
 

@@ -65,7 +65,7 @@ Response fields:
 - `num_data_rows`: count of non-empty data rows after `data_start_row`.
 - `warnings`: warning dictionaries for invalid metadata, such as empty or numeric parameter names.
 
-The frontend stores user-edited parameter, unit, and curve-label overrides in application state only. It must not write those edits back to the source simulation file. Curve labels are formatted with a constrained formula such as `('curve_label'-{'|','.trn'}+"_"+'parameter')`, where `curve_label` comes from `label_row` and `parameter` comes from the selected parameter name.
+The frontend stores user-edited parameter, unit, and curve-label overrides in application state only. It must not write those edits back to the source simulation file. Curve labels are formatted with a constrained formula such as `('curve_label'-{'|','.trn'}+"_"+'parameter')`, where `curve_label` comes from `label_row`, `parameter` comes from the selected parameter name, and `file_name` comes from the source case data filename.
 
 ### `load_dataset(request: LoadDatasetRequest) -> DatasetDetail`
 
@@ -135,7 +135,7 @@ Template fields:
 - `x_display`, `y_display`: display names used for filename tokens.
 - `x_label`, `y_label`: axis labels, usually formatted as `Parameter (Unit)`.
 - `curve_label`: legend label for the exported curve.
-- `curve_label_formula`: formula used to build per-file curve labels from the label row and selected parameter name.
+- `curve_label_formula`: formula used to build per-file curve labels from the label row, selected parameter name, and source filename.
 - `name_row`, `unit_row`, `data_start_row`: parser row configuration from the template file.
 - `label_row`, `y_column_index`: optional curve-label row configuration used to extract per-file export labels.
 - `curve_style`: serialized `CurveStyle` with `color`, `line_style`, `line_weight`, `marker_style`, `marker_size`, and `opacity`.

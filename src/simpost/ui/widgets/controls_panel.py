@@ -180,6 +180,9 @@ class ControlsPanel(QWidget):
         self.label_row_spin.valueChanged.connect(lambda _value: self.header_config_changed.emit())
 
         self.curve_label_formula_input = QLineEdit(DEFAULT_CURVE_LABEL_FORMULA)
+        self.curve_label_formula_input.setToolTip(
+            "Supported variables: curve_label, parameter, file_name"
+        )
         self.curve_label_formula_input.textChanged.connect(self._handle_label_formula_changed)
 
         row_form = QFormLayout()
@@ -907,11 +910,15 @@ class ControlsPanel(QWidget):
         return f"{parameter} ({unit})" if unit else parameter
 
     def _format_curve_label(self, curve_label: str, parameter: str, fallback: str) -> str:
+        file_name = ""
+        if self._current_file is not None:
+            file_name = str(self._current_file["filename"])
         return format_curve_label(
             self.curve_label_formula_input.text(),
             curve_label=curve_label,
             parameter=parameter,
             fallback=fallback,
+            file_name=file_name,
         )
 
     def _add_selected_y_variable(self) -> None:

@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from simpost.backend.export import _legend_label, batch_export_svg
+from simpost.backend.export import _curve_label, _legend_label, batch_export_svg
 from simpost.backend.ingestion import get_plot_data, parse_file_headers, scan_directory
 from simpost.backend.label_formula import DEFAULT_CURVE_LABEL_FORMULA, format_curve_label
 
@@ -247,6 +247,17 @@ class CurveLabelFormulaTests(unittest.TestCase):
 
         self.assertEqual(result, "Pressure")
 
+    def test_formats_curve_label_with_file_name(self) -> None:
+        result = format_curve_label(
+            "('file_name'-{'.trn'}+\"_\"+'parameter')",
+            curve_label="",
+            parameter="Pressure",
+            fallback="fallback",
+            file_name="case_alpha.trn",
+        )
+
+        self.assertEqual(result, "case_alpha_Pressure")
+
 
 class LegendLayoutTests(unittest.TestCase):
     def test_wraps_outside_top_long_labels(self) -> None:
@@ -324,6 +335,22 @@ class BatchExportSvgTests(unittest.TestCase):
 
             self.assertEqual([result["success"] for result in results], [True])
             self.assertTrue(Path(results[0]["output_path"]).exists())
+
+    def test_batch_export_curve_label_can_use_file_name(self) -> None:
+        with temporary_directory() as directory:
+            root = Path(directory)
+            output = root / "out"
+            path = root / "case_alpha.trn"
+            template = _batch_template([path], output)
+            template["curve_label_formula"] = "('file_name'-{'.trn'}+\"_\"+'parameter')"
+
+            label = _curve_label(
+                template,
+                {"plot_labels": []},
+                {"path": str(path), "filename": path.name},
+            )
+
+            self.assertEqual(label, "case_alpha_pressure")
 
 
 def _batch_template(file_paths: list[Path], output: Path) -> dict:
