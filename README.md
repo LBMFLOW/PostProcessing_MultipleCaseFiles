@@ -114,6 +114,7 @@ This project currently defines:
 - The desktop application entry point.
 - A main Qt window layout.
 - A directory scan UI with extension filtering and selectable file rows.
+- Local persistence for the last scan directory, extension text, and header configuration.
 - A backend file ingestion function for recursively scanning comma-separated files with non-standard extensions.
 - Header detection for parameter names and units with editable in-memory overrides.
 - Core 2D plotting for selected x/y parameters using embedded Matplotlib.
@@ -134,6 +135,8 @@ The Plot Configuration panel supports two multi-curve modes:
 - Multiple Y variables: choose one highlighted file, choose an X parameter, add one or more Y variables with `+ Add Y variable`, then use `Add curve(s)`.
 
 Use `Select all files` above the file list to check or uncheck large batches at once. Header Configuration can optionally read default curve-label prefix text from a user-selected row in each data file. A single non-empty label cell is reused for every plotted variable from that file.
+
+The app remembers the last directory, extension text, parameter row, units row setting, curve-label row setting, and curve-label formula when it is closed and restores them the next time it starts.
 
 Curve labels are built from the curve label formula. The formula can use `curve_label`, `parameter`, and `file_name`. The default formula is `('curve_label'-{'|','.trn'}+"_"+'parameter')`, which removes `|` and `.trn` from the label-row value, adds `_`, then adds the selected parameter name. Use a formula such as `('file_name'-{'.trn'}+"_"+'parameter')` to build labels from the case data filename instead.
 

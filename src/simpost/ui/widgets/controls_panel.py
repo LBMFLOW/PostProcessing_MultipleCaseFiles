@@ -54,6 +54,7 @@ class ControlsPanel(QWidget):
     selection_changed = pyqtSignal(int, int)
     file_highlighted = pyqtSignal(dict)
     header_config_changed = pyqtSignal()
+    settings_changed = pyqtSignal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -106,6 +107,7 @@ class ControlsPanel(QWidget):
 
         self.extensions_input = QLineEdit("dat, out, res, txt")
         self.extensions_input.setPlaceholderText("dat, out, res")
+        self.extensions_input.textChanged.connect(lambda _text: self.settings_changed.emit())
 
         self.scan_button = QPushButton("Scan")
         self.scan_button.clicked.connect(self.scan_requested.emit)
@@ -158,7 +160,7 @@ class ControlsPanel(QWidget):
         self.name_row_spin = QSpinBox()
         self.name_row_spin.setRange(1, 999_999)
         self.name_row_spin.setValue(1)
-        self.name_row_spin.valueChanged.connect(lambda _value: self.header_config_changed.emit())
+        self.name_row_spin.valueChanged.connect(lambda _value: self._emit_header_config_changed())
 
         self.unit_row_checkbox = QCheckBox("Use units row")
         self.unit_row_checkbox.setChecked(True)
@@ -167,7 +169,7 @@ class ControlsPanel(QWidget):
         self.unit_row_spin = QSpinBox()
         self.unit_row_spin.setRange(1, 999_999)
         self.unit_row_spin.setValue(2)
-        self.unit_row_spin.valueChanged.connect(lambda _value: self.header_config_changed.emit())
+        self.unit_row_spin.valueChanged.connect(lambda _value: self._emit_header_config_changed())
 
         self.label_row_checkbox = QCheckBox("Use curve label row")
         self.label_row_checkbox.setChecked(False)
@@ -177,7 +179,7 @@ class ControlsPanel(QWidget):
         self.label_row_spin.setRange(1, 999_999)
         self.label_row_spin.setValue(3)
         self.label_row_spin.setEnabled(False)
-        self.label_row_spin.valueChanged.connect(lambda _value: self.header_config_changed.emit())
+        self.label_row_spin.valueChanged.connect(lambda _value: self._emit_header_config_changed())
 
         self.curve_label_formula_input = QLineEdit(DEFAULT_CURVE_LABEL_FORMULA)
         self.curve_label_formula_input.setToolTip(
@@ -506,6 +508,13 @@ class ControlsPanel(QWidget):
     def set_directory_path(self, directory_path: str) -> None:
         self._directory_path = directory_path
         self.directory_label.setText(directory_path or "No directory selected")
+        self.settings_changed.emit()
+
+    def extensions_text(self) -> str:
+        return self.extensions_input.text().strip()
+
+    def set_extensions_text(self, extensions_text: str) -> None:
+        self.extensions_input.setText(extensions_text)
 
     def extensions(self) -> list[str]:
         return [
@@ -513,6 +522,56 @@ class ControlsPanel(QWidget):
             for extension in self.extensions_input.text().split(",")
             if extension.strip()
         ]
+
+    def header_settings(self) -> dict:
+        return {
+            "name_row": self.name_row_spin.value(),
+            "use_unit_row": self.unit_row_checkbox.isChecked(),
+            "unit_row": self.unit_row_spin.value(),
+            "use_label_row": self.label_row_checkbox.isChecked(),
+            "label_row": self.label_row_spin.value(),
+            "curve_label_formula": self.curve_label_formula_input.text().strip(),
+        }
+
+    def set_header_settings(self, settings: dict) -> None:
+        def row_value(key: str, default: int) -> int:
+            try:
+                return max(1, int(settings.get(key, default)))
+            except (TypeError, ValueError):
+                return default
+
+        def bool_value(key: str, default: bool) -> bool:
+            value = settings.get(key, default)
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str):
+                return value.strip().lower() in {"1", "true", "yes", "on"}
+            return bool(value)
+
+        widgets = (
+            self.name_row_spin,
+            self.unit_row_checkbox,
+            self.unit_row_spin,
+            self.label_row_checkbox,
+            self.label_row_spin,
+            self.curve_label_formula_input,
+        )
+        previous_blocks = [widget.blockSignals(True) for widget in widgets]
+        try:
+            self.name_row_spin.setValue(row_value("name_row", 1))
+            self.unit_row_checkbox.setChecked(bool_value("use_unit_row", True))
+            self.unit_row_spin.setValue(row_value("unit_row", 2))
+            self.unit_row_spin.setEnabled(self.unit_row_checkbox.isChecked())
+            self.label_row_checkbox.setChecked(bool_value("use_label_row", False))
+            self.label_row_spin.setValue(row_value("label_row", 3))
+            self.label_row_spin.setEnabled(self.label_row_checkbox.isChecked())
+            self.curve_label_formula_input.setText(
+                str(settings.get("curve_label_formula") or DEFAULT_CURVE_LABEL_FORMULA)
+            )
+        finally:
+            for widget, blocked in zip(widgets, previous_blocks):
+                widget.blockSignals(blocked)
+        self.settings_changed.emit()
 
     def set_files(self, files: list[dict]) -> None:
         self._files = files
@@ -720,13 +779,18 @@ class ControlsPanel(QWidget):
 
     def _handle_unit_row_enabled_changed(self, _state: int) -> None:
         self.unit_row_spin.setEnabled(self.unit_row_checkbox.isChecked())
-        self.header_config_changed.emit()
+        self._emit_header_config_changed()
 
     def _handle_label_row_enabled_changed(self, _state: int) -> None:
         self.label_row_spin.setEnabled(self.label_row_checkbox.isChecked())
+        self._emit_header_config_changed()
+
+    def _emit_header_config_changed(self) -> None:
         self.header_config_changed.emit()
+        self.settings_changed.emit()
 
     def _handle_label_formula_changed(self, _text: str) -> None:
+        self.settings_changed.emit()
         if self._current_header_info is None:
             return
         self._populate_axis_selectors(

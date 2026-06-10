@@ -6,11 +6,13 @@ import matplotlib
 from PyQt6.QtCore import QTimer, qVersion
 from PyQt6.QtWidgets import QApplication
 
-from simpost.ui.main_window import MainWindow
+from simpost.ui.main_window import MainWindow, SETTINGS_APPLICATION, SETTINGS_ORGANIZATION
 
 
 def main() -> int:
     app = QApplication([])
+    app.setApplicationName(SETTINGS_APPLICATION)
+    app.setOrganizationName(SETTINGS_ORGANIZATION)
     window = MainWindow()
     window.show()
 

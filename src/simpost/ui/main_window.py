@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import os
 from copy import deepcopy
+from pathlib import Path
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QAction
+from PyQt6.QtCore import QSettings, QStandardPaths, Qt
+from PyQt6.QtGui import QAction, QCloseEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -39,6 +40,20 @@ COLORBLIND_SAFE_PALETTE = [
     "#882255",
 ]
 
+SETTINGS_ORGANIZATION = "Simulation Tools"
+SETTINGS_APPLICATION = "Simulation Post Processor"
+SETTINGS_ENV_VAR = "SIMPOST_SETTINGS_PATH"
+SETTINGS_FILENAME = "settings.ini"
+FALLBACK_SETTINGS_FILENAME = ".simpost_settings.ini"
+LAST_DIRECTORY_KEY = "scan/last_directory"
+EXTENSIONS_KEY = "scan/extensions"
+HEADER_NAME_ROW_KEY = "headers/name_row"
+HEADER_USE_UNIT_ROW_KEY = "headers/use_unit_row"
+HEADER_UNIT_ROW_KEY = "headers/unit_row"
+HEADER_USE_LABEL_ROW_KEY = "headers/use_label_row"
+HEADER_LABEL_ROW_KEY = "headers/label_row"
+HEADER_CURVE_LABEL_FORMULA_KEY = "headers/curve_label_formula"
+
 
 class MainWindow(QMainWindow):
     def __init__(self, backend: BackendController | None = None) -> None:
@@ -51,6 +66,8 @@ class MainWindow(QMainWindow):
         self._next_curve_id = 1
         self._selected_curve_id: str | None = None
         self._plot_style = PlotStyleState.defaults()
+        self._restoring_settings = False
+        self._settings_file_path = self._resolve_settings_file_path()
 
         self.setWindowTitle("Simulation Post Processor")
         self.resize(1280, 800)
@@ -73,6 +90,7 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._connect_signals()
         self.controls_panel.set_plot_style(self._plot_style)
+        self._restore_last_settings()
 
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
@@ -136,10 +154,13 @@ class MainWindow(QMainWindow):
         self.controls_panel.selection_changed.connect(self._update_selection_status)
         self.controls_panel.file_highlighted.connect(self._parse_highlighted_file_headers)
         self.controls_panel.header_config_changed.connect(self._parse_selected_file_headers)
+        self.controls_panel.settings_changed.connect(self._save_last_settings)
         self.plot_panel.curve_selected.connect(self._select_curve)
 
     def _browse_directory(self) -> None:
-        start_directory = self.controls_panel.directory_path() or str(Path.home())
+        start_directory = self.controls_panel.directory_path()
+        if not start_directory or not Path(start_directory).is_dir():
+            start_directory = str(Path.home())
         directory_path = QFileDialog.getExistingDirectory(
             self,
             "Select simulation results directory",
@@ -152,6 +173,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Selected directory: {directory_path}")
 
     def _scan_directory(self) -> None:
+        self._save_last_settings()
         directory_path = self.controls_panel.directory_path()
         extensions = self.controls_panel.extensions()
 
@@ -183,6 +205,114 @@ class MainWindow(QMainWindow):
             )
         else:
             self.statusBar().showMessage(f"Found {len(files)} files.")
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self._save_last_settings()
+        super().closeEvent(event)
+
+    def _restore_last_settings(self) -> None:
+        settings = self._settings()
+        restored = False
+
+        self._restoring_settings = True
+        try:
+            if settings.contains(LAST_DIRECTORY_KEY):
+                directory_path = self._settings_string(settings, LAST_DIRECTORY_KEY, "")
+                self.controls_panel.set_directory_path(directory_path)
+                restored = True
+
+            if settings.contains(EXTENSIONS_KEY):
+                extensions_text = self._settings_string(settings, EXTENSIONS_KEY, "")
+                self.controls_panel.set_extensions_text(extensions_text)
+                restored = True
+
+            self.controls_panel.set_header_settings(
+                {
+                    "name_row": self._settings_int(settings, HEADER_NAME_ROW_KEY, 1),
+                    "use_unit_row": self._settings_bool(settings, HEADER_USE_UNIT_ROW_KEY, True),
+                    "unit_row": self._settings_int(settings, HEADER_UNIT_ROW_KEY, 2),
+                    "use_label_row": self._settings_bool(settings, HEADER_USE_LABEL_ROW_KEY, False),
+                    "label_row": self._settings_int(settings, HEADER_LABEL_ROW_KEY, 3),
+                    "curve_label_formula": self._settings_string(
+                        settings,
+                        HEADER_CURVE_LABEL_FORMULA_KEY,
+                        "",
+                    ),
+                }
+            )
+        finally:
+            self._restoring_settings = False
+
+        if restored:
+            self.statusBar().showMessage("Restored last scan settings.")
+
+    def _save_last_settings(self) -> None:
+        if self._restoring_settings:
+            return
+        settings = self._settings()
+        header_settings = self.controls_panel.header_settings()
+        settings.setValue(LAST_DIRECTORY_KEY, self.controls_panel.directory_path())
+        settings.setValue(EXTENSIONS_KEY, self.controls_panel.extensions_text())
+        settings.setValue(HEADER_NAME_ROW_KEY, header_settings["name_row"])
+        settings.setValue(HEADER_USE_UNIT_ROW_KEY, header_settings["use_unit_row"])
+        settings.setValue(HEADER_UNIT_ROW_KEY, header_settings["unit_row"])
+        settings.setValue(HEADER_USE_LABEL_ROW_KEY, header_settings["use_label_row"])
+        settings.setValue(HEADER_LABEL_ROW_KEY, header_settings["label_row"])
+        settings.setValue(
+            HEADER_CURVE_LABEL_FORMULA_KEY,
+            header_settings["curve_label_formula"],
+        )
+        settings.sync()
+
+    def _settings(self) -> QSettings:
+        return QSettings(str(self._settings_file_path), QSettings.Format.IniFormat)
+
+    def _resolve_settings_file_path(self) -> Path:
+        override = os.environ.get(SETTINGS_ENV_VAR)
+        if override:
+            return Path(override).expanduser()
+
+        config_directory = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.AppConfigLocation
+        )
+        candidates: list[Path] = []
+        if config_directory:
+            candidates.append(Path(config_directory) / SETTINGS_FILENAME)
+        candidates.append(Path.cwd() / FALLBACK_SETTINGS_FILENAME)
+
+        for candidate in candidates:
+            if self._can_use_settings_path(candidate):
+                return candidate
+        return candidates[-1]
+
+    def _can_use_settings_path(self, settings_path: Path) -> bool:
+        probe_path = settings_path.parent / f".{settings_path.name}.probe"
+        try:
+            settings_path.parent.mkdir(parents=True, exist_ok=True)
+            probe_path.write_text("", encoding="utf-8")
+            probe_path.unlink(missing_ok=True)
+        except OSError:
+            return False
+        return True
+
+    def _settings_string(self, settings: QSettings, key: str, default: str) -> str:
+        value = settings.value(key, default)
+        return str(value) if value is not None else default
+
+    def _settings_int(self, settings: QSettings, key: str, default: int) -> int:
+        value = settings.value(key, default)
+        try:
+            return max(1, int(value))
+        except (TypeError, ValueError):
+            return default
+
+    def _settings_bool(self, settings: QSettings, key: str, default: bool) -> bool:
+        value = settings.value(key, default)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
 
     def _update_selection_status(self, total: int, selected: int) -> None:
         self.statusBar().showMessage(f"{total} files found, {selected} selected")
