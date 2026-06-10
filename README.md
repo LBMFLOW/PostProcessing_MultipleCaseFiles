@@ -107,10 +107,21 @@ This project currently defines:
 - A backend file ingestion function for recursively scanning comma-separated files with non-standard extensions.
 - Header detection for parameter names and units with editable in-memory overrides.
 - Core 2D plotting for selected x/y parameters using embedded Matplotlib.
+- Multi-curve plotting from multiple selected files or multiple Y variables from one file.
+- A curve list with editable labels and delete controls that drives reactive plot redraws.
 - A typed backend API boundary.
 - The planned frontend/backend contract.
 
 Filtering, session persistence, and explicit SVG export workflow logic are not implemented yet. Matplotlib's built-in toolbar supports saving figures, including SVG output.
+
+## Plotting Workflow
+
+The Plot Configuration panel supports two multi-curve modes:
+
+- Multiple selected files: choose one X parameter and one Y parameter, check files in the file list, then use `Add curves for all selected files`.
+- Multiple Y variables: choose one highlighted file, choose an X parameter, add one or more Y variables with `+ Add Y variable`, then use `Add curve(s)`.
+
+Plotted curves appear in the Curves panel. Curve labels are editable inline, and the delete button removes a curve from both the list and the plot. The plot redraws from the curve list whenever curves are added, renamed, or removed.
 
 ## Backend API Contract
 

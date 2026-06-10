@@ -29,6 +29,9 @@ class ControlsPanel(QWidget):
     browse_requested = pyqtSignal()
     scan_requested = pyqtSignal()
     add_curve_requested = pyqtSignal()
+    add_selected_files_curves_requested = pyqtSignal()
+    curve_label_changed = pyqtSignal(str, str)
+    curve_delete_requested = pyqtSignal(str)
     selection_changed = pyqtSignal(int, int)
     file_highlighted = pyqtSignal(dict)
     header_config_changed = pyqtSignal()
@@ -46,6 +49,7 @@ class ControlsPanel(QWidget):
         self._header_overrides: dict[str, dict] = {}
         self._updating_table = False
         self._updating_header = False
+        self._updating_curve_table = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -55,6 +59,7 @@ class ControlsPanel(QWidget):
         layout.addWidget(self._build_file_list_group(), stretch=1)
         layout.addWidget(self._build_header_group(), stretch=1)
         layout.addWidget(self._build_plot_group())
+        layout.addWidget(self._build_curve_list_group(), stretch=1)
         layout.addWidget(self._build_style_group())
 
     def _build_data_group(self) -> QGroupBox:
@@ -155,7 +160,7 @@ class ControlsPanel(QWidget):
 
     def _build_plot_group(self) -> QGroupBox:
         group = QGroupBox("Plot Configuration")
-        form = QFormLayout(group)
+        layout = QVBoxLayout(group)
 
         self.x_axis_selector = QComboBox()
         self.x_axis_selector.addItem("Select x variable")
@@ -165,13 +170,57 @@ class ControlsPanel(QWidget):
         self.y_axis_selector.addItem("Select y variable")
         self.y_axis_selector.setEnabled(False)
 
-        self.add_curve_button = QPushButton("Add curve")
+        self.add_y_variable_button = QPushButton("+ Add Y variable")
+        self.add_y_variable_button.setEnabled(False)
+        self.add_y_variable_button.clicked.connect(self._add_selected_y_variable)
+
+        self.selected_y_table = QTableWidget(0, 2)
+        self.selected_y_table.setHorizontalHeaderLabels(["Y variables", ""])
+        self.selected_y_table.verticalHeader().setVisible(False)
+        self.selected_y_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.selected_y_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.selected_y_table.setMaximumHeight(92)
+        y_header = self.selected_y_table.horizontalHeader()
+        y_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        y_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+
+        self.add_curve_button = QPushButton("Add curve(s)")
         self.add_curve_button.setEnabled(False)
         self.add_curve_button.clicked.connect(self.add_curve_requested.emit)
 
+        self.add_selected_files_button = QPushButton("Add curves for all selected files")
+        self.add_selected_files_button.setEnabled(False)
+        self.add_selected_files_button.clicked.connect(self.add_selected_files_curves_requested.emit)
+
+        form = QFormLayout()
         form.addRow("X", self.x_axis_selector)
         form.addRow("Y", self.y_axis_selector)
-        form.addRow("", self.add_curve_button)
+        form.addRow("", self.add_y_variable_button)
+        layout.addLayout(form)
+        layout.addWidget(self.selected_y_table)
+        layout.addWidget(self.add_curve_button)
+        layout.addWidget(self.add_selected_files_button)
+        return group
+
+    def _build_curve_list_group(self) -> QGroupBox:
+        group = QGroupBox("Curves")
+        layout = QVBoxLayout(group)
+
+        self.curve_table = QTableWidget(0, 5)
+        self.curve_table.setHorizontalHeaderLabels(["Label", "Source", "X", "Y", ""])
+        self.curve_table.verticalHeader().setVisible(False)
+        self.curve_table.setAlternatingRowColors(True)
+        self.curve_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.curve_table.itemChanged.connect(self._handle_curve_label_changed)
+
+        header = self.curve_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+
+        layout.addWidget(self.curve_table)
         return group
 
     def _build_style_group(self) -> QGroupBox:
@@ -440,9 +489,13 @@ class ControlsPanel(QWidget):
             self.y_axis_selector.addItem("Select y variable")
             self.x_axis_selector.setEnabled(False)
             self.y_axis_selector.setEnabled(False)
+            self.add_y_variable_button.setEnabled(False)
             self.add_curve_button.setEnabled(False)
+            self.add_selected_files_button.setEnabled(False)
+            self._clear_selected_y_variables()
             return
 
+        self._clear_selected_y_variables()
         for index, display_parameter in enumerate(display_parameters):
             unit = units[index].strip() if index < len(units) else ""
             raw_parameter = (
@@ -461,7 +514,22 @@ class ControlsPanel(QWidget):
 
         self.x_axis_selector.setEnabled(True)
         self.y_axis_selector.setEnabled(True)
+        self.add_y_variable_button.setEnabled(True)
         self.add_curve_button.setEnabled(True)
+        self.add_selected_files_button.setEnabled(True)
+
+    def plot_selections_for_current_file(self) -> list[dict]:
+        y_items = self._selected_y_axis_data()
+        if not y_items:
+            current_y = self.y_axis_selector.currentData(Qt.ItemDataRole.UserRole)
+            y_items = [current_y] if isinstance(current_y, dict) else []
+
+        selections: list[dict] = []
+        for y_data in y_items:
+            selection = self._plot_selection_for_y_data(y_data)
+            if selection is not None:
+                selections.append(selection)
+        return selections
 
     def _refresh_parameter_warning(self, row: int) -> None:
         parameter_item = self.header_preview_table.item(row, 1)
@@ -495,6 +563,127 @@ class ControlsPanel(QWidget):
         parameter = parameter.strip()
         unit = unit.strip()
         return f"{parameter} ({unit})" if unit else parameter
+
+    def _add_selected_y_variable(self) -> None:
+        y_data = self.y_axis_selector.currentData(Qt.ItemDataRole.UserRole)
+        if not isinstance(y_data, dict):
+            return
+
+        raw_parameter = str(y_data["raw_parameter"])
+        existing = {
+            self.selected_y_table.item(row, 0).data(Qt.ItemDataRole.UserRole)["raw_parameter"]
+            for row in range(self.selected_y_table.rowCount())
+            if self.selected_y_table.item(row, 0) is not None
+        }
+        if raw_parameter in existing:
+            return
+
+        row = self.selected_y_table.rowCount()
+        self.selected_y_table.insertRow(row)
+        item = self._read_only_item(str(y_data["display_parameter"]))
+        item.setData(Qt.ItemDataRole.UserRole, y_data)
+        self.selected_y_table.setItem(row, 0, item)
+
+        delete_button = QPushButton("\u00d7")
+        delete_button.setFixedWidth(28)
+        delete_button.clicked.connect(lambda _checked=False, target_row=row: self._remove_y_row(target_row))
+        self.selected_y_table.setCellWidget(row, 1, delete_button)
+
+    def _remove_y_row(self, row: int) -> None:
+        if 0 <= row < self.selected_y_table.rowCount():
+            self.selected_y_table.removeRow(row)
+            self._rebind_y_delete_buttons()
+
+    def _clear_selected_y_variables(self) -> None:
+        self.selected_y_table.setRowCount(0)
+
+    def _rebind_y_delete_buttons(self) -> None:
+        for row in range(self.selected_y_table.rowCount()):
+            delete_button = QPushButton("\u00d7")
+            delete_button.setFixedWidth(28)
+            delete_button.clicked.connect(
+                lambda _checked=False, target_row=row: self._remove_y_row(target_row)
+            )
+            self.selected_y_table.setCellWidget(row, 1, delete_button)
+
+    def _selected_y_axis_data(self) -> list[dict]:
+        y_items: list[dict] = []
+        for row in range(self.selected_y_table.rowCount()):
+            item = self.selected_y_table.item(row, 0)
+            if item is None:
+                continue
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(data, dict):
+                y_items.append(data)
+        return y_items
+
+    def _plot_selection_for_y_data(self, y_data: dict) -> dict | None:
+        if self._current_file is None or self._current_header_config is None:
+            return None
+        if self._current_header_info is None:
+            return None
+
+        x_data = self.x_axis_selector.currentData(Qt.ItemDataRole.UserRole)
+        if not isinstance(x_data, dict):
+            return None
+
+        name_row, unit_row = self._current_header_config
+        return {
+            "filepath": str(self._current_file["path"]),
+            "filename": str(self._current_file["filename"]),
+            "x_param": x_data["raw_parameter"],
+            "y_param": y_data["raw_parameter"],
+            "x_display": x_data["display_parameter"],
+            "y_display": y_data["display_parameter"],
+            "x_label": x_data["axis_label"],
+            "y_label": y_data["axis_label"],
+            "name_row": name_row,
+            "unit_row": unit_row,
+            "data_start_row": int(self._current_header_info["data_start_row"]),
+        }
+
+    def set_curves(self, curves: list[dict]) -> None:
+        self._updating_curve_table = True
+        self.curve_table.setRowCount(len(curves))
+
+        for row, curve in enumerate(curves):
+            label_item = QTableWidgetItem(str(curve["label"]))
+            label_item.setFlags(
+                Qt.ItemFlag.ItemIsEnabled
+                | Qt.ItemFlag.ItemIsSelectable
+                | Qt.ItemFlag.ItemIsEditable
+            )
+            label_item.setData(Qt.ItemDataRole.UserRole, str(curve["id"]))
+            self.curve_table.setItem(row, 0, label_item)
+
+            source_item = self._read_only_item(self._truncate_source(str(curve["source_file"])))
+            source_item.setToolTip(str(curve.get("source_path", curve["source_file"])))
+            self.curve_table.setItem(row, 1, source_item)
+            self.curve_table.setItem(row, 2, self._read_only_item(str(curve["x_param"])))
+            self.curve_table.setItem(row, 3, self._read_only_item(str(curve["y_param"])))
+
+            delete_button = QPushButton("\u00d7")
+            delete_button.setFixedWidth(28)
+            curve_id = str(curve["id"])
+            delete_button.clicked.connect(
+                lambda _checked=False, target_id=curve_id: self.curve_delete_requested.emit(target_id)
+            )
+            self.curve_table.setCellWidget(row, 4, delete_button)
+
+        self._updating_curve_table = False
+
+    def _handle_curve_label_changed(self, item: QTableWidgetItem) -> None:
+        if self._updating_curve_table or item.column() != 0:
+            return
+        curve_id = item.data(Qt.ItemDataRole.UserRole)
+        if curve_id is None:
+            return
+        self.curve_label_changed.emit(str(curve_id), item.text().strip())
+
+    def _truncate_source(self, source: str, max_length: int = 24) -> str:
+        if len(source) <= max_length:
+            return source
+        return f"...{source[-(max_length - 3):]}"
 
     def _update_summary(self) -> None:
         total = len(self._files)

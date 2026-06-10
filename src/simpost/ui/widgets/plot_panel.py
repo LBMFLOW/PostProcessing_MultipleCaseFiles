@@ -18,6 +18,8 @@ class PlotPanel(QWidget):
         self.axes = self.figure.add_subplot(111)
         self._lines: list[Line2D] = []
         self._legend_artist_to_line: dict[object, Line2D] = {}
+        self._line_to_curve_id: dict[Line2D, str] = {}
+        self._curve_visibility: dict[str, bool] = {}
         self._set_empty_state()
         self.canvas.mpl_connect("pick_event", self._handle_pick)
 
@@ -33,15 +35,44 @@ class PlotPanel(QWidget):
         self.axes.grid(True, alpha=0.3)
         self.canvas.draw_idle()
 
-    def add_curve(self, plot_data: dict, curve_label: str) -> None:
-        if not self._lines:
-            self.axes.clear()
-            self.axes.grid(True, alpha=0.3)
+    def render_curves(self, curves: list[dict]) -> None:
+        self.axes.clear()
+        self._lines = []
+        self._legend_artist_to_line.clear()
+        self._line_to_curve_id.clear()
 
-        (line,) = self.axes.plot(plot_data["x"], plot_data["y"], label=curve_label)
-        self._lines.append(line)
-        self.axes.set_xlabel(plot_data["x_label"])
-        self.axes.set_ylabel(plot_data["y_label"])
+        if not curves:
+            self._set_empty_state()
+            return
+
+        active_ids = {str(curve["id"]) for curve in curves}
+        self._curve_visibility = {
+            curve_id: visible
+            for curve_id, visible in self._curve_visibility.items()
+            if curve_id in active_ids
+        }
+
+        self.axes.grid(True, alpha=0.3)
+        first_curve = curves[0]
+        self.axes.set_xlabel(str(first_curve["x_label"]))
+        self.axes.set_ylabel(str(first_curve["y_label"]))
+
+        for curve in curves:
+            curve_id = str(curve["id"])
+            visible = self._curve_visibility.get(curve_id, True)
+            (line,) = self.axes.plot(
+                curve["x"],
+                curve["y"],
+                label=str(curve["label"]),
+                color=curve.get("color"),
+                visible=visible,
+            )
+            self._lines.append(line)
+            self._line_to_curve_id[line] = curve_id
+            self._curve_visibility[curve_id] = visible
+
+        self.axes.relim()
+        self.axes.autoscale_view()
         self._refresh_legend()
         self.canvas.draw_idle()
 
@@ -69,5 +100,8 @@ class PlotPanel(QWidget):
             return
 
         line.set_visible(not line.get_visible())
+        curve_id = self._line_to_curve_id.get(line)
+        if curve_id is not None:
+            self._curve_visibility[curve_id] = line.get_visible()
         self._refresh_legend()
         self.canvas.draw_idle()

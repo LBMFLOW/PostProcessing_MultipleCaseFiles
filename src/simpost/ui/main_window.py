@@ -13,6 +13,22 @@ from simpost.ui.widgets.controls_panel import ControlsPanel
 from simpost.ui.widgets.plot_panel import PlotPanel
 
 
+COLORBLIND_SAFE_PALETTE = [
+    "#0072B2",
+    "#D55E00",
+    "#009E73",
+    "#CC79A7",
+    "#E69F00",
+    "#56B4E9",
+    "#332288",
+    "#88CCEE",
+    "#44AA99",
+    "#117733",
+    "#999933",
+    "#882255",
+]
+
+
 class MainWindow(QMainWindow):
     def __init__(self, backend: BackendController | None = None) -> None:
         super().__init__()
@@ -20,6 +36,8 @@ class MainWindow(QMainWindow):
         self.backend = backend or BackendController()
         self.controls_panel = ControlsPanel()
         self.plot_panel = PlotPanel()
+        self._curves: list[dict] = []
+        self._next_curve_id = 1
 
         self.setWindowTitle("Simulation Post Processor")
         self.resize(1280, 800)
@@ -84,6 +102,11 @@ class MainWindow(QMainWindow):
         self.controls_panel.browse_requested.connect(self._browse_directory)
         self.controls_panel.scan_requested.connect(self._scan_directory)
         self.controls_panel.add_curve_requested.connect(self._add_curve)
+        self.controls_panel.add_selected_files_curves_requested.connect(
+            self._add_curves_for_selected_files
+        )
+        self.controls_panel.curve_label_changed.connect(self._rename_curve)
+        self.controls_panel.curve_delete_requested.connect(self._delete_curve)
         self.controls_panel.selection_changed.connect(self._update_selection_status)
         self.controls_panel.file_highlighted.connect(self._parse_highlighted_file_headers)
         self.controls_panel.header_config_changed.connect(self._parse_selected_file_headers)
@@ -174,11 +197,65 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Parsed headers for {file_info['filename']}.")
 
     def _add_curve(self) -> None:
-        selection = self.controls_panel.plot_selection()
-        if selection is None:
+        selections = self.controls_panel.plot_selections_for_current_file()
+        if not selections:
             self.statusBar().showMessage("Select a file and plot axes before adding a curve.")
             return
 
+        added = 0
+        for selection in selections:
+            if self._add_curve_from_selection(selection, str(selection["y_display"])):
+                added += 1
+
+        if added:
+            self._refresh_curve_views()
+            self.statusBar().showMessage(f"Added {added} curve(s).")
+
+    def _add_curves_for_selected_files(self) -> None:
+        base_selection = self.controls_panel.plot_selection()
+        selected_files = self.controls_panel.selected_files()
+        if base_selection is None:
+            self.statusBar().showMessage("Select x and y parameters before adding curves.")
+            return
+        if not selected_files:
+            self.statusBar().showMessage("Select at least one file before adding curves.")
+            return
+
+        added = 0
+        failures: list[str] = []
+        for file_info in selected_files:
+            if file_info.get("parse_error"):
+                failures.append(str(file_info["filename"]))
+                continue
+
+            try:
+                header_info = self.backend.parse_file_headers(
+                    str(file_info["path"]),
+                    name_row=base_selection["name_row"],
+                    unit_row=base_selection["unit_row"],
+                )
+                selection = {
+                    **base_selection,
+                    "filepath": str(file_info["path"]),
+                    "filename": str(file_info["filename"]),
+                    "data_start_row": int(header_info["data_start_row"]),
+                }
+                if self._add_curve_from_selection(selection, str(file_info["filename"])):
+                    added += 1
+            except (FileNotFoundError, ValueError, OSError):
+                failures.append(str(file_info["filename"]))
+
+        if added:
+            self._refresh_curve_views()
+
+        if failures:
+            self.statusBar().showMessage(
+                f"Added {added} curve(s). {len(failures)} selected file(s) could not be plotted."
+            )
+        else:
+            self.statusBar().showMessage(f"Added {added} curve(s) from selected files.")
+
+    def _add_curve_from_selection(self, selection: dict, curve_label: str) -> bool:
         try:
             plot_data = self.backend.get_plot_data(
                 selection["filepath"],
@@ -190,10 +267,41 @@ class MainWindow(QMainWindow):
             )
         except (FileNotFoundError, ValueError, OSError) as exc:
             self.statusBar().showMessage(str(exc))
-            return
+            return False
 
         plot_data["x_label"] = selection["x_label"]
         plot_data["y_label"] = selection["y_label"]
-        curve_label = f"{selection['filename']} — {selection['y_display']}"
-        self.plot_panel.add_curve(plot_data, curve_label)
-        self.statusBar().showMessage(f"Added curve: {curve_label}")
+        curve = {
+            "id": f"curve-{self._next_curve_id}",
+            "label": curve_label,
+            "source_file": selection["filename"],
+            "source_path": selection["filepath"],
+            "x_param": selection["x_display"],
+            "y_param": selection["y_display"],
+            "x": plot_data["x"],
+            "y": plot_data["y"],
+            "x_label": plot_data["x_label"],
+            "y_label": plot_data["y_label"],
+            "color": COLORBLIND_SAFE_PALETTE[
+                (self._next_curve_id - 1) % len(COLORBLIND_SAFE_PALETTE)
+            ],
+        }
+        self._next_curve_id += 1
+        self._curves.append(curve)
+        return True
+
+    def _rename_curve(self, curve_id: str, label: str) -> None:
+        for curve in self._curves:
+            if curve["id"] == curve_id:
+                curve["label"] = label or str(curve["label"])
+                break
+        self._refresh_curve_views()
+
+    def _delete_curve(self, curve_id: str) -> None:
+        self._curves = [curve for curve in self._curves if curve["id"] != curve_id]
+        self._refresh_curve_views()
+        self.statusBar().showMessage("Curve removed.")
+
+    def _refresh_curve_views(self) -> None:
+        self.controls_panel.set_curves(self._curves)
+        self.plot_panel.render_curves(self._curves)

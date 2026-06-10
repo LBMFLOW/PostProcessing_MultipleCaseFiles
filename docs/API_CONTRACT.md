@@ -103,6 +103,13 @@ Response fields:
 
 The frontend may override the displayed labels with user-edited parameter and unit names held in app state. The source file is not modified.
 
+Frontend curve behavior:
+
+- Multiple checked files can produce one curve per file using a shared x/y parameter pair.
+- Multiple selected Y variables can produce one curve per Y variable from the highlighted file.
+- The application state owns the curve list, including label, source file, x parameter, y parameter, numeric arrays, display labels, and color.
+- The plot redraws from the curve list whenever curves are added, renamed, or deleted.
+
 ### `get_plot_defaults(dataset_id: str) -> PlotDefaults`
 
 Returns suggested plotting defaults for a dataset.
