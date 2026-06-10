@@ -238,6 +238,9 @@ def _read_label_row(rows: list[list[str]], label_row: int | None, parameter_coun
         return [""] * parameter_count
 
     labels = [cell.strip() for cell in rows[label_row]]
+    non_empty_labels = [label for label in labels if label]
+    if len(non_empty_labels) == 1:
+        return [non_empty_labels[0]] * parameter_count
     if len(labels) < parameter_count:
         labels.extend([""] * (parameter_count - len(labels)))
     return labels[:parameter_count]
@@ -311,7 +314,7 @@ def _read_csv_rows(path: Path, include_empty_rows: bool = False) -> list[list[st
         try:
             with path.open("r", encoding=encoding, newline="") as file:
                 reader = csv.reader(file)
-                rows = [[cell.strip() for cell in row] for row in reader]
+                rows = [[_clean_cell(cell) for cell in row] for row in reader]
                 if include_empty_rows:
                     return rows
                 return [row for row in rows if any(cell.strip() for cell in row)]
@@ -321,6 +324,13 @@ def _read_csv_rows(path: Path, include_empty_rows: bool = False) -> list[list[st
     if last_error is not None:
         raise last_error
     return []
+
+
+def _clean_cell(value: str) -> str:
+    cleaned = value.strip()
+    if cleaned.startswith("|"):
+        cleaned = cleaned[1:].strip()
+    return cleaned
 
 
 def _looks_like_header(rows: list[list[str]]) -> bool:

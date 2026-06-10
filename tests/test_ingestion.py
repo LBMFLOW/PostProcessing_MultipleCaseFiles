@@ -125,6 +125,32 @@ class ParseFileHeadersTests(unittest.TestCase):
         self.assertEqual(result["data_start_row"], 3)
         self.assertEqual(result["num_data_rows"], 2)
 
+    def test_reuses_single_cell_label_row_for_all_parameters(self) -> None:
+        with temporary_directory() as directory:
+            path = Path(directory) / "case.trn"
+            path.write_text(
+                "| T_amb39.52C_T_target45.33C.trn\n"
+                "|Time,Pressure,Temperature\n"
+                "|sec,Pa,C\n"
+                "0,101325,45\n"
+                "1,101500,46\n",
+                encoding="utf-8",
+            )
+
+            result = parse_file_headers(str(path), name_row=1, unit_row=2, label_row=0)
+
+        self.assertEqual(result["parameters"], ["Time", "Pressure", "Temperature"])
+        self.assertEqual(result["units"], ["sec", "Pa", "C"])
+        self.assertEqual(
+            result["plot_labels"],
+            [
+                "T_amb39.52C_T_target45.33C.trn",
+                "T_amb39.52C_T_target45.33C.trn",
+                "T_amb39.52C_T_target45.33C.trn",
+            ],
+        )
+        self.assertEqual(result["data_start_row"], 3)
+
     def test_warns_for_empty_and_numeric_parameter_names(self) -> None:
         with temporary_directory() as directory:
             path = Path(directory) / "case.res"
@@ -236,6 +262,35 @@ class BatchExportSvgTests(unittest.TestCase):
         self.assertEqual(results[0]["success"], True)
         self.assertEqual(results[1]["success"], False)
         self.assertIn("Parameter not found", results[1]["error"])
+
+    def test_exports_gt_style_label_row_with_outside_legend(self) -> None:
+        with temporary_directory() as directory:
+            root = Path(directory)
+            output = root / "out"
+            path = root / "case.trn"
+            path.write_text(
+                "| T_amb39.52C_T_target45.33C.trn\n"
+                "|Time,Pressure\n"
+                "|sec,Pa\n"
+                "0,101325\n"
+                "1,101500\n",
+                encoding="utf-8",
+            )
+            template = _batch_template([path], output)
+            template["name_row"] = 1
+            template["unit_row"] = 2
+            template["label_row"] = 0
+            template["data_start_row"] = 3
+            template["x_param"] = "Time"
+            template["y_param"] = "Pressure"
+            template["x_label"] = "Time (sec)"
+            template["y_label"] = "Pressure (Pa)"
+            template["plot_style"]["legend"]["location"] = "outside right"
+
+            results = batch_export_svg(template)
+
+            self.assertEqual([result["success"] for result in results], [True])
+            self.assertTrue(Path(results[0]["output_path"]).exists())
 
 
 def _batch_template(file_paths: list[Path], output: Path) -> dict:

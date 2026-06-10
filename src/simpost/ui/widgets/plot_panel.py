@@ -25,6 +25,29 @@ MARKER_STYLE_MAP = {
     "cross": "x",
 }
 
+OUTSIDE_LEGEND_LAYOUTS = {
+    "outside right": {
+        "loc": "center left",
+        "bbox_to_anchor": (1.02, 0.5),
+        "adjust": {"left": 0.10, "right": 0.76, "bottom": 0.12, "top": 0.90},
+    },
+    "outside left": {
+        "loc": "center right",
+        "bbox_to_anchor": (-0.08, 0.5),
+        "adjust": {"left": 0.30, "right": 0.96, "bottom": 0.12, "top": 0.90},
+    },
+    "outside top": {
+        "loc": "lower center",
+        "bbox_to_anchor": (0.5, 1.12),
+        "adjust": {"left": 0.12, "right": 0.96, "bottom": 0.12, "top": 0.76},
+    },
+    "outside bottom": {
+        "loc": "upper center",
+        "bbox_to_anchor": (0.5, -0.18),
+        "adjust": {"left": 0.12, "right": 0.96, "bottom": 0.28, "top": 0.90},
+    },
+}
+
 
 class PlotPanel(QWidget):
     def __init__(self) -> None:
@@ -130,6 +153,7 @@ class PlotPanel(QWidget):
     def _refresh_legend(self, legend_style: LegendStyle | None, font_size: int) -> None:
         self._legend_artist_to_line.clear()
         if legend_style is not None and not legend_style.visible:
+            self.figure.set_tight_layout(True)
             legend = self.axes.get_legend()
             if legend is not None:
                 legend.remove()
@@ -137,8 +161,9 @@ class PlotPanel(QWidget):
 
         location = legend_style.location if legend_style is not None else "best"
         frame_enabled = legend_style.frame_enabled if legend_style is not None else True
+        legend_kwargs = self._legend_kwargs(location, frame_enabled, font_size)
         try:
-            legend = self.axes.legend(loc=location, frameon=frame_enabled, fontsize=font_size)
+            legend = self.axes.legend(**legend_kwargs)
         except ValueError:
             legend = self.axes.legend(loc="best", frameon=frame_enabled, fontsize=font_size)
         if legend is None:
@@ -160,6 +185,25 @@ class PlotPanel(QWidget):
             legend_text.set_picker(True)
             legend_text.set_alpha(1.0 if original_line.get_visible() else 0.25)
             self._legend_artist_to_line[legend_text] = original_line
+
+    def _legend_kwargs(self, location: str, frame_enabled: bool, font_size: int) -> dict:
+        outside_layout = OUTSIDE_LEGEND_LAYOUTS.get(location)
+        if outside_layout is None:
+            self.figure.set_tight_layout(True)
+            return {"loc": location, "frameon": frame_enabled, "fontsize": font_size}
+
+        self.figure.set_tight_layout(False)
+        self.figure.subplots_adjust(**outside_layout["adjust"])
+        kwargs = {
+            "loc": outside_layout["loc"],
+            "bbox_to_anchor": outside_layout["bbox_to_anchor"],
+            "borderaxespad": 0.0,
+            "frameon": frame_enabled,
+            "fontsize": font_size,
+        }
+        if location in {"outside top", "outside bottom"}:
+            kwargs["ncol"] = min(max(len(self._lines), 1), 4)
+        return kwargs
 
     def _handle_pick(self, event: object) -> None:
         artist = getattr(event, "artist", None)

@@ -426,6 +426,10 @@ class ControlsPanel(QWidget):
             ("Lower center", "lower center"),
             ("Upper center", "upper center"),
             ("Center", "center"),
+            ("Outside right", "outside right"),
+            ("Outside left", "outside left"),
+            ("Outside top", "outside top"),
+            ("Outside bottom", "outside bottom"),
         ):
             self.legend_location_selector.addItem(text, value)
         self.legend_location_selector.currentIndexChanged.connect(

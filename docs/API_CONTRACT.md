@@ -54,7 +54,7 @@ Arguments:
 - `filepath`: file selected in the scan results.
 - `name_row`: zero-based row index containing parameter names.
 - `unit_row`: zero-based row index containing units, or `None` when the file has no units row.
-- `label_row`: zero-based row index containing preferred curve labels, or `None` when labels should use the normal defaults.
+- `label_row`: zero-based row index containing preferred curve labels, or `None` when labels should use the normal defaults. If this row has one non-empty cell, that value is reused as the label for all parameters in the file.
 
 Response fields:
 
@@ -141,6 +141,8 @@ Template fields:
 - `plot_style`: serialized `PlotStyleState` with `plot_title`, axis-title overrides, `x_range`, `y_range`, `font_size`, `grid`, and `legend`.
 - `figure_size_inches`: two-value width/height list.
 - `dpi`: figure DPI.
+
+Legend locations support standard Matplotlib locations plus `outside right`, `outside left`, `outside top`, and `outside bottom`.
 
 Each result dictionary contains:
 

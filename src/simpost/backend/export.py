@@ -29,6 +29,29 @@ MARKER_STYLE_MAP = {
     "cross": "x",
 }
 
+OUTSIDE_LEGEND_LAYOUTS = {
+    "outside right": {
+        "loc": "center left",
+        "bbox_to_anchor": (1.02, 0.5),
+        "adjust": {"left": 0.10, "right": 0.76, "bottom": 0.12, "top": 0.90},
+    },
+    "outside left": {
+        "loc": "center right",
+        "bbox_to_anchor": (-0.08, 0.5),
+        "adjust": {"left": 0.30, "right": 0.96, "bottom": 0.12, "top": 0.90},
+    },
+    "outside top": {
+        "loc": "lower center",
+        "bbox_to_anchor": (0.5, 1.12),
+        "adjust": {"left": 0.12, "right": 0.96, "bottom": 0.12, "top": 0.76},
+    },
+    "outside bottom": {
+        "loc": "upper center",
+        "bbox_to_anchor": (0.5, -0.18),
+        "adjust": {"left": 0.12, "right": 0.96, "bottom": 0.28, "top": 0.90},
+    },
+}
+
 
 def batch_export_svg(
     plot_template: dict,
@@ -150,12 +173,14 @@ def _save_svg(plot_template: dict, plot_data: dict, output_path: Path) -> None:
         legend_style = plot_style.get("legend") or {}
         if legend_style.get("visible", True):
             frame_enabled = legend_style.get("frame_enabled", True)
+            legend_kwargs = _legend_kwargs(
+                figure,
+                str(legend_style.get("location", "best")),
+                frame_enabled,
+                font_size,
+            )
             try:
-                legend = axes.legend(
-                    loc=legend_style.get("location", "best"),
-                    frameon=frame_enabled,
-                    fontsize=font_size,
-                )
+                legend = axes.legend(**legend_kwargs)
             except ValueError:
                 legend = axes.legend(loc="best", frameon=frame_enabled, fontsize=font_size)
             if legend is not None and legend_style.get("frame_enabled", True):
@@ -172,6 +197,24 @@ def _has_valid_range(range_state: dict) -> bool:
     minimum = float(range_state.get("minimum", 0.0))
     maximum = float(range_state.get("maximum", 0.0))
     return minimum < maximum
+
+
+def _legend_kwargs(figure, location: str, frame_enabled: bool, font_size: int) -> dict:
+    outside_layout = OUTSIDE_LEGEND_LAYOUTS.get(location)
+    if outside_layout is None:
+        return {"loc": location, "frameon": frame_enabled, "fontsize": font_size}
+
+    figure.subplots_adjust(**outside_layout["adjust"])
+    kwargs = {
+        "loc": outside_layout["loc"],
+        "bbox_to_anchor": outside_layout["bbox_to_anchor"],
+        "borderaxespad": 0.0,
+        "frameon": frame_enabled,
+        "fontsize": font_size,
+    }
+    if location in {"outside top", "outside bottom"}:
+        kwargs["ncol"] = 1
+    return kwargs
 
 
 def _curve_label(plot_template: dict, header_info: dict) -> str:
