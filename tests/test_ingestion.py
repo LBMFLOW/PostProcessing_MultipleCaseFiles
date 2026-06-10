@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from simpost.backend.export import batch_export_svg
+from simpost.backend.export import _legend_label, batch_export_svg
 from simpost.backend.ingestion import get_plot_data, parse_file_headers, scan_directory
 from simpost.backend.label_formula import DEFAULT_CURVE_LABEL_FORMULA, format_curve_label
 
@@ -246,6 +246,16 @@ class CurveLabelFormulaTests(unittest.TestCase):
         )
 
         self.assertEqual(result, "Pressure")
+
+
+class LegendLayoutTests(unittest.TestCase):
+    def test_wraps_outside_top_long_labels(self) -> None:
+        label = "T_amb18.24C_T_target43.66C_T_coolant-19.15C_CoolantFR40.00LPM_T_cell_mean"
+
+        wrapped = _legend_label("outside top", label)
+
+        self.assertIn("\n", wrapped)
+        self.assertLessEqual(max(len(line) for line in wrapped.splitlines()), 72)
 
 
 class BatchExportSvgTests(unittest.TestCase):

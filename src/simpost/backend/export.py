@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import textwrap
 from pathlib import Path
 from typing import Callable
 
@@ -34,21 +35,25 @@ OUTSIDE_LEGEND_LAYOUTS = {
     "outside right": {
         "loc": "center left",
         "bbox_to_anchor": (1.02, 0.5),
+        "wrap_width": 42,
         "adjust": {"left": 0.10, "right": 0.76, "bottom": 0.12, "top": 0.90},
     },
     "outside left": {
         "loc": "center right",
         "bbox_to_anchor": (-0.08, 0.5),
+        "wrap_width": 42,
         "adjust": {"left": 0.30, "right": 0.96, "bottom": 0.12, "top": 0.90},
     },
     "outside top": {
-        "loc": "lower center",
-        "bbox_to_anchor": (0.5, 1.12),
+        "loc": "upper center",
+        "bbox_to_anchor": (0.5, 0.98),
+        "wrap_width": 72,
         "adjust": {"left": 0.12, "right": 0.96, "bottom": 0.12, "top": 0.76},
     },
     "outside bottom": {
-        "loc": "upper center",
-        "bbox_to_anchor": (0.5, -0.18),
+        "loc": "lower center",
+        "bbox_to_anchor": (0.5, 0.02),
+        "wrap_width": 72,
         "adjust": {"left": 0.12, "right": 0.96, "bottom": 0.28, "top": 0.90},
     },
 }
@@ -134,7 +139,7 @@ def _save_svg(plot_template: dict, plot_data: dict, output_path: Path) -> None:
 
     try:
         style = plot_template["curve_style"]
-        axes.plot(
+        (line,) = axes.plot(
             plot_data["x"],
             plot_data["y"],
             label=str(plot_data.get("curve_label") or plot_template["y_label"]),
@@ -179,9 +184,11 @@ def _save_svg(plot_template: dict, plot_data: dict, output_path: Path) -> None:
                 str(legend_style.get("location", "best")),
                 frame_enabled,
                 font_size,
+                [line.get_label()],
             )
+            legend_label = _legend_label(str(legend_style.get("location", "best")), line.get_label())
             try:
-                legend = axes.legend(**legend_kwargs)
+                legend = axes.legend(handles=[line], labels=[legend_label], **legend_kwargs)
             except ValueError:
                 legend = axes.legend(loc="best", frameon=frame_enabled, fontsize=font_size)
             if legend is not None and legend_style.get("frame_enabled", True):
@@ -200,19 +207,51 @@ def _has_valid_range(range_state: dict) -> bool:
     return minimum < maximum
 
 
-def _legend_kwargs(figure, location: str, frame_enabled: bool, font_size: int) -> dict:
+def _legend_label(location: str, label: str) -> str:
+    outside_layout = OUTSIDE_LEGEND_LAYOUTS.get(location)
+    if outside_layout is None:
+        return label
+    return textwrap.fill(
+        label,
+        width=int(outside_layout["wrap_width"]),
+        break_long_words=True,
+        break_on_hyphens=False,
+    )
+
+
+def _legend_kwargs(
+    figure,
+    location: str,
+    frame_enabled: bool,
+    font_size: int,
+    labels: list[str],
+) -> dict:
     outside_layout = OUTSIDE_LEGEND_LAYOUTS.get(location)
     if outside_layout is None:
         return {"loc": location, "frameon": frame_enabled, "fontsize": font_size}
 
-    figure.subplots_adjust(**outside_layout["adjust"])
+    wrapped_labels = [_legend_label(location, label) for label in labels]
+    adjust = dict(outside_layout["adjust"])
+    if location in {"outside top", "outside bottom"}:
+        legend_rows = sum(label.count("\n") + 1 for label in wrapped_labels)
+        reserved = min(0.58, 0.10 + legend_rows * 0.040 * max(font_size, 8) / 10)
+        if location == "outside top":
+            adjust["top"] = max(0.30, 1.0 - reserved)
+        else:
+            adjust["bottom"] = min(0.60, reserved)
+    figure.subplots_adjust(**adjust)
     kwargs = {
         "loc": outside_layout["loc"],
         "bbox_to_anchor": outside_layout["bbox_to_anchor"],
+        "bbox_transform": figure.transFigure
+        if location in {"outside top", "outside bottom"}
+        else None,
         "borderaxespad": 0.0,
         "frameon": frame_enabled,
         "fontsize": font_size,
     }
+    if kwargs["bbox_transform"] is None:
+        del kwargs["bbox_transform"]
     if location in {"outside top", "outside bottom"}:
         kwargs["ncol"] = 1
     return kwargs

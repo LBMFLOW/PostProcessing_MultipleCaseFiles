@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import textwrap
+
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
@@ -29,21 +31,25 @@ OUTSIDE_LEGEND_LAYOUTS = {
     "outside right": {
         "loc": "center left",
         "bbox_to_anchor": (1.02, 0.5),
+        "wrap_width": 42,
         "adjust": {"left": 0.10, "right": 0.76, "bottom": 0.12, "top": 0.90},
     },
     "outside left": {
         "loc": "center right",
         "bbox_to_anchor": (-0.08, 0.5),
+        "wrap_width": 42,
         "adjust": {"left": 0.30, "right": 0.96, "bottom": 0.12, "top": 0.90},
     },
     "outside top": {
-        "loc": "lower center",
-        "bbox_to_anchor": (0.5, 1.12),
+        "loc": "upper center",
+        "bbox_to_anchor": (0.5, 0.98),
+        "wrap_width": 72,
         "adjust": {"left": 0.12, "right": 0.96, "bottom": 0.12, "top": 0.76},
     },
     "outside bottom": {
-        "loc": "upper center",
-        "bbox_to_anchor": (0.5, -0.18),
+        "loc": "lower center",
+        "bbox_to_anchor": (0.5, 0.02),
+        "wrap_width": 72,
         "adjust": {"left": 0.12, "right": 0.96, "bottom": 0.28, "top": 0.90},
     },
 }
@@ -161,11 +167,18 @@ class PlotPanel(QWidget):
 
         location = legend_style.location if legend_style is not None else "best"
         frame_enabled = legend_style.frame_enabled if legend_style is not None else True
-        legend_kwargs = self._legend_kwargs(location, frame_enabled, font_size)
+        legend_labels = self._legend_labels(location)
+        legend_kwargs = self._legend_kwargs(location, frame_enabled, font_size, legend_labels)
         try:
-            legend = self.axes.legend(**legend_kwargs)
+            legend = self.axes.legend(handles=self._lines, labels=legend_labels, **legend_kwargs)
         except ValueError:
-            legend = self.axes.legend(loc="best", frameon=frame_enabled, fontsize=font_size)
+            legend = self.axes.legend(
+                handles=self._lines,
+                labels=[line.get_label() for line in self._lines],
+                loc="best",
+                frameon=frame_enabled,
+                fontsize=font_size,
+            )
         if legend is None:
             return
 
@@ -186,23 +199,57 @@ class PlotPanel(QWidget):
             legend_text.set_alpha(1.0 if original_line.get_visible() else 0.25)
             self._legend_artist_to_line[legend_text] = original_line
 
-    def _legend_kwargs(self, location: str, frame_enabled: bool, font_size: int) -> dict:
+    def _legend_labels(self, location: str) -> list[str]:
+        outside_layout = OUTSIDE_LEGEND_LAYOUTS.get(location)
+        labels = [line.get_label() for line in self._lines]
+        if outside_layout is None:
+            return labels
+
+        wrap_width = int(outside_layout["wrap_width"])
+        return [
+            textwrap.fill(
+                label,
+                width=wrap_width,
+                break_long_words=True,
+                break_on_hyphens=False,
+            )
+            for label in labels
+        ]
+
+    def _legend_kwargs(
+        self,
+        location: str,
+        frame_enabled: bool,
+        font_size: int,
+        legend_labels: list[str],
+    ) -> dict:
         outside_layout = OUTSIDE_LEGEND_LAYOUTS.get(location)
         if outside_layout is None:
             self.figure.set_tight_layout(True)
             return {"loc": location, "frameon": frame_enabled, "fontsize": font_size}
 
         self.figure.set_tight_layout(False)
-        self.figure.subplots_adjust(**outside_layout["adjust"])
+        adjust = dict(outside_layout["adjust"])
+        if location in {"outside top", "outside bottom"}:
+            legend_rows = sum(label.count("\n") + 1 for label in legend_labels)
+            reserved = min(0.58, 0.10 + legend_rows * 0.040 * max(font_size, 8) / 10)
+            if location == "outside top":
+                adjust["top"] = max(0.30, 1.0 - reserved)
+            else:
+                adjust["bottom"] = min(0.60, reserved)
+        self.figure.subplots_adjust(**adjust)
         kwargs = {
             "loc": outside_layout["loc"],
             "bbox_to_anchor": outside_layout["bbox_to_anchor"],
+            "bbox_transform": self.figure.transFigure
+            if location in {"outside top", "outside bottom"}
+            else self.axes.transAxes,
             "borderaxespad": 0.0,
             "frameon": frame_enabled,
             "fontsize": font_size,
         }
         if location in {"outside top", "outside bottom"}:
-            kwargs["ncol"] = min(max(len(self._lines), 1), 4)
+            kwargs["ncol"] = 1
         return kwargs
 
     def _handle_pick(self, event: object) -> None:
