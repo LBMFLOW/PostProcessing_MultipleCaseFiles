@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QStatusBar,
 )
 
+from simpost.backend.label_formula import format_curve_label
 from simpost.backend.controller import BackendController
 from simpost.ui.plot_models import CurveState, CurveStyle, PlotStyleState
 from simpost.ui.widgets.batch_export_dialog import BatchExportDialog
@@ -269,7 +270,9 @@ class MainWindow(QMainWindow):
                     "curve_label": self._curve_label_from_header(
                         header_info,
                         base_selection["y_column_index"],
+                        base_selection["y_display"],
                         str(file_info["filename"]),
+                        base_selection["curve_label_formula"],
                     ),
                 }
                 if self._add_curve_from_selection(selection, str(selection["curve_label"])):
@@ -320,6 +323,7 @@ class MainWindow(QMainWindow):
             name_row=selection["name_row"],
             unit_row=selection["unit_row"],
             label_row=selection["label_row"],
+            curve_label_formula=selection["curve_label_formula"],
             data_start_row=selection["data_start_row"],
             y_column_index=selection["y_column_index"],
             x=list(plot_data["x"]),
@@ -393,14 +397,15 @@ class MainWindow(QMainWindow):
         self,
         header_info: dict,
         column_index: int,
+        parameter: str,
         fallback: str,
+        formula: str,
     ) -> str:
         labels = header_info.get("plot_labels", [])
+        curve_label = ""
         if 0 <= column_index < len(labels):
-            label = str(labels[column_index]).strip()
-            if label:
-                return label
-        return fallback
+            curve_label = str(labels[column_index]).strip()
+        return format_curve_label(formula, curve_label, parameter, fallback)
 
     def _curve_by_id(self, curve_id: str | None) -> CurveState | None:
         if curve_id is None:
@@ -490,6 +495,7 @@ class MainWindow(QMainWindow):
             "x_label": template_curve.x_label,
             "y_label": template_curve.y_label,
             "curve_label": template_curve.label,
+            "curve_label_formula": template_curve.curve_label_formula,
             "name_row": template_curve.name_row,
             "unit_row": template_curve.unit_row,
             "label_row": template_curve.label_row,

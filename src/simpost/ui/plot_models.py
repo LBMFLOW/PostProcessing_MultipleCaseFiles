@@ -31,6 +31,7 @@ class CurveState:
     name_row: int
     unit_row: int | None
     label_row: int | None
+    curve_label_formula: str
     data_start_row: int
     y_column_index: int
     x: list[float]

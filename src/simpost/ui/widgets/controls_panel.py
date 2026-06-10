@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from simpost.backend.label_formula import DEFAULT_CURVE_LABEL_FORMULA, format_curve_label
 from simpost.ui.plot_models import (
     AxisRangeState,
     CurveState,
@@ -176,10 +177,14 @@ class ControlsPanel(QWidget):
         self.label_row_spin.setEnabled(False)
         self.label_row_spin.valueChanged.connect(lambda _value: self.header_config_changed.emit())
 
+        self.curve_label_formula_input = QLineEdit(DEFAULT_CURVE_LABEL_FORMULA)
+        self.curve_label_formula_input.textChanged.connect(self._handle_label_formula_changed)
+
         row_form = QFormLayout()
         row_form.addRow("Parameter row", self.name_row_spin)
         row_form.addRow(self.unit_row_checkbox, self.unit_row_spin)
         row_form.addRow(self.label_row_checkbox, self.label_row_spin)
+        row_form.addRow("Curve label formula", self.curve_label_formula_input)
 
         self.header_summary_label = QLabel("Select a file to preview headers")
 
@@ -710,6 +715,15 @@ class ControlsPanel(QWidget):
         self.label_row_spin.setEnabled(self.label_row_checkbox.isChecked())
         self.header_config_changed.emit()
 
+    def _handle_label_formula_changed(self, _text: str) -> None:
+        if self._current_header_info is None:
+            return
+        self._populate_axis_selectors(
+            self._current_parameters(),
+            self._current_units(),
+            self._current_labels(),
+        )
+
     def _handle_header_item_changed(self, item: QTableWidgetItem) -> None:
         if self._updating_header or item.column() not in (1, 2, 3):
             return
@@ -778,6 +792,7 @@ class ControlsPanel(QWidget):
             "x_label": x_data["axis_label"],
             "y_label": y_data["axis_label"],
             "curve_label": y_data["curve_label"],
+            "curve_label_formula": self.curve_label_formula_input.text().strip(),
             "name_row": name_row,
             "unit_row": unit_row,
             "label_row": label_row,
@@ -822,7 +837,11 @@ class ControlsPanel(QWidget):
                 "display_parameter": display_parameter,
                 "display_unit": unit,
                 "axis_label": self._format_axis_label(display_parameter, unit),
-                "curve_label": labels[index].strip() if index < len(labels) else "",
+                "curve_label": self._format_curve_label(
+                    labels[index].strip() if index < len(labels) else "",
+                    display_parameter,
+                    display_parameter,
+                ),
             }
             self.x_axis_selector.addItem(display_parameter, axis_data)
             self.y_axis_selector.addItem(display_parameter, axis_data)
@@ -878,6 +897,14 @@ class ControlsPanel(QWidget):
         parameter = parameter.strip()
         unit = unit.strip()
         return f"{parameter} ({unit})" if unit else parameter
+
+    def _format_curve_label(self, curve_label: str, parameter: str, fallback: str) -> str:
+        return format_curve_label(
+            self.curve_label_formula_input.text(),
+            curve_label=curve_label,
+            parameter=parameter,
+            fallback=fallback,
+        )
 
     def _add_selected_y_variable(self) -> None:
         y_data = self.y_axis_selector.currentData(Qt.ItemDataRole.UserRole)
@@ -955,6 +982,7 @@ class ControlsPanel(QWidget):
             "x_label": x_data["axis_label"],
             "y_label": y_data["axis_label"],
             "curve_label": y_data["curve_label"],
+            "curve_label_formula": self.curve_label_formula_input.text().strip(),
             "name_row": name_row,
             "unit_row": unit_row,
             "label_row": label_row,

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from simpost.backend.export import batch_export_svg
 from simpost.backend.ingestion import get_plot_data, parse_file_headers, scan_directory
+from simpost.backend.label_formula import DEFAULT_CURVE_LABEL_FORMULA, format_curve_label
 
 
 TEST_TMP_ROOT = Path(__file__).resolve().parents[1] / "test_tmp"
@@ -225,6 +226,28 @@ class GetPlotDataTests(unittest.TestCase):
                 )
 
 
+class CurveLabelFormulaTests(unittest.TestCase):
+    def test_formats_curve_label_with_removals_and_parameter(self) -> None:
+        result = format_curve_label(
+            DEFAULT_CURVE_LABEL_FORMULA,
+            curve_label="| T_amb39.52C_T_target45.33C.trn",
+            parameter="T_cell_mean",
+            fallback="fallback",
+        )
+
+        self.assertEqual(result, "T_amb39.52C_T_target45.33C_T_cell_mean")
+
+    def test_uses_fallback_when_formula_requires_missing_curve_label(self) -> None:
+        result = format_curve_label(
+            DEFAULT_CURVE_LABEL_FORMULA,
+            curve_label="",
+            parameter="Pressure",
+            fallback="Pressure",
+        )
+
+        self.assertEqual(result, "Pressure")
+
+
 class BatchExportSvgTests(unittest.TestCase):
     def test_exports_one_svg_per_file(self) -> None:
         with temporary_directory() as directory:
@@ -306,6 +329,7 @@ def _batch_template(file_paths: list[Path], output: Path) -> dict:
         "x_label": "time (s)",
         "y_label": "pressure (Pa)",
         "curve_label": "pressure",
+        "curve_label_formula": DEFAULT_CURVE_LABEL_FORMULA,
         "name_row": 0,
         "unit_row": 1,
         "label_row": None,

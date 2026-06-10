@@ -133,7 +133,9 @@ The Plot Configuration panel supports two multi-curve modes:
 - Multiple selected files: choose one X parameter and one Y parameter, check files in the file list, then use `Add curves for all selected files`.
 - Multiple Y variables: choose one highlighted file, choose an X parameter, add one or more Y variables with `+ Add Y variable`, then use `Add curve(s)`.
 
-Use `Select all files` above the file list to check or uncheck large batches at once. Header Configuration can optionally read default curve labels from a user-selected row in each data file. A single non-empty label cell is used as the curve label for every plotted variable from that file.
+Use `Select all files` above the file list to check or uncheck large batches at once. Header Configuration can optionally read default curve-label prefix text from a user-selected row in each data file. A single non-empty label cell is reused for every plotted variable from that file.
+
+Curve labels are built from the curve label formula. The default formula is `('curve_label'-{'|','.trn'}+"_"+'parameter')`, which removes `|` and `.trn` from the label-row value, adds `_`, then adds the selected parameter name.
 
 For GT-style files with a first-line case header followed by parameter names and units, use Parameter row `2`, units row `3`, and curve label row `1`.
 

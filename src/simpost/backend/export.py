@@ -12,6 +12,7 @@ matplotlib.use("svg", force=True)
 from matplotlib import pyplot as plt  # noqa: E402
 
 from simpost.backend.ingestion import get_plot_data, parse_file_headers
+from simpost.backend.label_formula import DEFAULT_CURVE_LABEL_FORMULA, format_curve_label
 
 
 LINE_STYLE_MAP = {
@@ -219,14 +220,18 @@ def _legend_kwargs(figure, location: str, frame_enabled: bool, font_size: int) -
 
 def _curve_label(plot_template: dict, header_info: dict) -> str:
     label_row = plot_template.get("label_row")
+    curve_label = ""
     if label_row is not None:
         column_index = int(plot_template.get("y_column_index", -1))
         labels = header_info.get("plot_labels", [])
         if 0 <= column_index < len(labels):
-            label = str(labels[column_index]).strip()
-            if label:
-                return label
-    return str(plot_template.get("curve_label") or plot_template["y_label"])
+            curve_label = str(labels[column_index]).strip()
+    return format_curve_label(
+        str(plot_template.get("curve_label_formula") or DEFAULT_CURVE_LABEL_FORMULA),
+        curve_label=curve_label,
+        parameter=str(plot_template.get("y_display") or plot_template["y_param"]),
+        fallback=str(plot_template.get("curve_label") or plot_template["y_label"]),
+    )
 
 
 def _render_filename(plot_template: dict, file_info: dict) -> str:

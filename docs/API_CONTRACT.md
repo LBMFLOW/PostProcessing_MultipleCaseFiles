@@ -54,7 +54,7 @@ Arguments:
 - `filepath`: file selected in the scan results.
 - `name_row`: zero-based row index containing parameter names.
 - `unit_row`: zero-based row index containing units, or `None` when the file has no units row.
-- `label_row`: zero-based row index containing preferred curve labels, or `None` when labels should use the normal defaults. If this row has one non-empty cell, that value is reused as the label for all parameters in the file.
+- `label_row`: zero-based row index containing preferred curve-label prefix text, or `None` when labels should use the normal defaults. If this row has one non-empty cell, that value is reused for all parameters in the file.
 
 Response fields:
 
@@ -65,7 +65,7 @@ Response fields:
 - `num_data_rows`: count of non-empty data rows after `data_start_row`.
 - `warnings`: warning dictionaries for invalid metadata, such as empty or numeric parameter names.
 
-The frontend stores user-edited parameter, unit, and curve-label overrides in application state only. It must not write those edits back to the source simulation file.
+The frontend stores user-edited parameter, unit, and curve-label overrides in application state only. It must not write those edits back to the source simulation file. Curve labels are formatted with a constrained formula such as `('curve_label'-{'|','.trn'}+"_"+'parameter')`, where `curve_label` comes from `label_row` and `parameter` comes from the selected parameter name.
 
 ### `load_dataset(request: LoadDatasetRequest) -> DatasetDetail`
 
@@ -135,6 +135,7 @@ Template fields:
 - `x_display`, `y_display`: display names used for filename tokens.
 - `x_label`, `y_label`: axis labels, usually formatted as `Parameter (Unit)`.
 - `curve_label`: legend label for the exported curve.
+- `curve_label_formula`: formula used to build per-file curve labels from the label row and selected parameter name.
 - `name_row`, `unit_row`, `data_start_row`: parser row configuration from the template file.
 - `label_row`, `y_column_index`: optional curve-label row configuration used to extract per-file export labels.
 - `curve_style`: serialized `CurveStyle` with `color`, `line_style`, `line_weight`, `marker_style`, `marker_size`, and `opacity`.
