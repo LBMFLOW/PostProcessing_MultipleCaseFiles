@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import textwrap
 
+import matplotlib.patheffects as path_effects
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from simpost.ui.plot_models import CurveState, LegendStyle, PlotStyleState
@@ -56,6 +58,8 @@ OUTSIDE_LEGEND_LAYOUTS = {
 
 
 class PlotPanel(QWidget):
+    curve_selected = pyqtSignal(str)
+
     def __init__(self) -> None:
         super().__init__()
 
@@ -84,7 +88,12 @@ class PlotPanel(QWidget):
         self.axes.grid(True, alpha=0.3)
         self.canvas.draw_idle()
 
-    def render_curves(self, curves: list[CurveState], plot_style: PlotStyleState) -> None:
+    def render_curves(
+        self,
+        curves: list[CurveState],
+        plot_style: PlotStyleState,
+        selected_curve_id: str | None = None,
+    ) -> None:
         self.axes.clear()
         self._lines = []
         self._legend_artist_to_line.clear()
@@ -118,18 +127,34 @@ class PlotPanel(QWidget):
         for curve in curves:
             curve_id = curve.id
             visible = self._curve_visibility.get(curve_id, True)
+            selected = curve_id == selected_curve_id
+            line_width = curve.style.line_weight + 2.0 if selected else curve.style.line_weight
             (line,) = self.axes.plot(
                 curve.x,
                 curve.y,
                 label=curve.label,
                 color=curve.style.color,
                 linestyle=LINE_STYLE_MAP.get(curve.style.line_style, "-"),
-                linewidth=curve.style.line_weight,
+                linewidth=line_width,
                 marker=MARKER_STYLE_MAP.get(curve.style.marker_style),
-                markersize=curve.style.marker_size,
+                markersize=curve.style.marker_size + (2.0 if selected else 0.0),
                 alpha=curve.style.opacity,
                 visible=visible,
+                zorder=20 if selected else 2,
             )
+            line.set_picker(True)
+            line.set_pickradius(8)
+            if selected:
+                line.set_path_effects(
+                    [
+                        path_effects.Stroke(
+                            linewidth=line_width + 3.0,
+                            foreground="#202020",
+                            alpha=0.55,
+                        ),
+                        path_effects.Normal(),
+                    ]
+                )
             self._lines.append(line)
             self._line_to_curve_id[line] = curve_id
             self._curve_visibility[curve_id] = visible
@@ -255,6 +280,11 @@ class PlotPanel(QWidget):
     def _handle_pick(self, event: object) -> None:
         artist = getattr(event, "artist", None)
         line = self._legend_artist_to_line.get(artist)
+        if line is None and isinstance(artist, Line2D):
+            curve_id = self._line_to_curve_id.get(artist)
+            if curve_id is not None:
+                self.curve_selected.emit(curve_id)
+            return
         if line is None:
             return
 

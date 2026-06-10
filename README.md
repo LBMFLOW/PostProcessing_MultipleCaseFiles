@@ -141,6 +141,8 @@ For GT-style files with a first-line case header followed by parameter names and
 
 Plotted curves appear in the Curves panel. Curve labels are editable inline, and the delete button removes a curve from both the list and the plot. The plot redraws from the curve list whenever curves are added, renamed, or removed.
 
+Curves can be selected from the Curves table, from the Selected Curve label dropdown, or by clicking a plotted line directly. The selected curve is drawn above the others with a thicker highlighted stroke. Browsing labels in the dropdown previews that curve highlight before editing its style.
+
 ## Style Controls
 
 The Style panel includes:

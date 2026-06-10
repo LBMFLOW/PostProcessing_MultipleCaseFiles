@@ -126,6 +126,7 @@ class MainWindow(QMainWindow):
         )
         self.controls_panel.curve_label_changed.connect(self._rename_curve)
         self.controls_panel.curve_delete_requested.connect(self._delete_curve)
+        self.controls_panel.curve_highlighted.connect(self._preview_curve)
         self.controls_panel.curve_selected.connect(self._select_curve)
         self.controls_panel.curve_style_changed.connect(self._update_curve_style)
         self.controls_panel.plot_style_changed.connect(self._update_plot_style)
@@ -135,6 +136,7 @@ class MainWindow(QMainWindow):
         self.controls_panel.selection_changed.connect(self._update_selection_status)
         self.controls_panel.file_highlighted.connect(self._parse_highlighted_file_headers)
         self.controls_panel.header_config_changed.connect(self._parse_selected_file_headers)
+        self.plot_panel.curve_selected.connect(self._select_curve)
 
     def _browse_directory(self) -> None:
         start_directory = self.controls_panel.directory_path() or str(Path.home())
@@ -358,11 +360,22 @@ class MainWindow(QMainWindow):
 
         self.controls_panel.set_curves(self._curves, self._selected_curve_id)
         self.controls_panel.set_selected_curve(self._curve_by_id(self._selected_curve_id))
-        self.plot_panel.render_curves(self._curves, self._plot_style)
+        self.plot_panel.render_curves(self._curves, self._plot_style, self._selected_curve_id)
 
     def _select_curve(self, curve_id: str) -> None:
+        if self._curve_by_id(curve_id) is None:
+            return
         self._selected_curve_id = curve_id
         self.controls_panel.set_selected_curve(self._curve_by_id(curve_id))
+        self.plot_panel.render_curves(self._curves, self._plot_style, self._selected_curve_id)
+
+    def _preview_curve(self, curve_id: str) -> None:
+        curve = self._curve_by_id(curve_id)
+        if curve is None:
+            return
+        self._selected_curve_id = curve_id
+        self.controls_panel.set_selected_curve(curve, sync_selector=False)
+        self.plot_panel.render_curves(self._curves, self._plot_style, self._selected_curve_id)
 
     def _update_curve_style(self, curve_id: str, style: CurveStyle) -> None:
         curve = self._curve_by_id(curve_id)
@@ -373,7 +386,7 @@ class MainWindow(QMainWindow):
 
     def _update_plot_style(self, plot_style: PlotStyleState) -> None:
         self._plot_style = plot_style
-        self.plot_panel.render_curves(self._curves, self._plot_style)
+        self.plot_panel.render_curves(self._curves, self._plot_style, self._selected_curve_id)
 
     def _reset_all_styles(self) -> None:
         for curve in self._curves:

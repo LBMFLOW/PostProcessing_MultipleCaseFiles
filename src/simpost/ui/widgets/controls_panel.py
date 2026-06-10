@@ -44,6 +44,7 @@ class ControlsPanel(QWidget):
     add_selected_files_curves_requested = pyqtSignal()
     apply_uniform_style_requested = pyqtSignal()
     batch_export_requested = pyqtSignal()
+    curve_highlighted = pyqtSignal(str)
     curve_selected = pyqtSignal(str)
     curve_label_changed = pyqtSignal(str, str)
     curve_delete_requested = pyqtSignal(str)
@@ -70,6 +71,7 @@ class ControlsPanel(QWidget):
         self._updating_select_all = False
         self._updating_header = False
         self._updating_curve_table = False
+        self._updating_curve_selector = False
         self._updating_style_controls = False
         self._updating_plot_style_controls = False
         self._selected_curve_id: str | None = None
@@ -316,9 +318,15 @@ class ControlsPanel(QWidget):
         group = QGroupBox("Selected Curve")
         form = QFormLayout(group)
 
-        self.curve_label_input = QLineEdit()
+        self.curve_label_input = QComboBox()
+        self.curve_label_input.setEditable(True)
+        self.curve_label_input.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.curve_label_input.setEnabled(False)
-        self.curve_label_input.textChanged.connect(self._handle_curve_label_input_changed)
+        self.curve_label_input.currentIndexChanged.connect(self._handle_curve_selector_changed)
+        self.curve_label_input.highlighted.connect(self._handle_curve_selector_highlighted)
+        self.curve_label_input.lineEdit().editingFinished.connect(
+            self._handle_curve_label_input_changed
+        )
 
         self.curve_color_button = QPushButton("Color")
         self.curve_color_button.setEnabled(False)
@@ -991,12 +999,18 @@ class ControlsPanel(QWidget):
 
     def set_curves(self, curves: list[CurveState], selected_curve_id: str | None = None) -> None:
         self._updating_curve_table = True
+        self._updating_curve_selector = True
         self.curve_table.setRowCount(len(curves))
+        self.curve_label_input.clear()
         selected_row = -1
+        selected_combo_index = -1
 
         for row, curve in enumerate(curves):
             if curve.id == selected_curve_id:
                 selected_row = row
+                selected_combo_index = row
+
+            self.curve_label_input.addItem(curve.label, curve.id)
 
             label_item = QTableWidgetItem(curve.label)
             label_item.setFlags(
@@ -1025,7 +1039,9 @@ class ControlsPanel(QWidget):
             self.curve_table.selectRow(selected_row)
         else:
             self.curve_table.clearSelection()
+        self.curve_label_input.setCurrentIndex(selected_combo_index)
 
+        self._updating_curve_selector = False
         self._updating_curve_table = False
 
     def _handle_curve_label_changed(self, item: QTableWidgetItem) -> None:
@@ -1058,7 +1074,7 @@ class ControlsPanel(QWidget):
             return source
         return f"...{source[-(max_length - 3):]}"
 
-    def set_selected_curve(self, curve: CurveState | None) -> None:
+    def set_selected_curve(self, curve: CurveState | None, sync_selector: bool = True) -> None:
         self._updating_style_controls = True
         self._selected_curve_id = curve.id if curve is not None else None
         enabled = curve is not None
@@ -1075,10 +1091,16 @@ class ControlsPanel(QWidget):
             widget.setEnabled(enabled)
 
         if curve is None:
-            self.curve_label_input.setText("")
+            if sync_selector:
+                self._sync_curve_selector(None)
+            self.curve_label_input.setEditText("")
             self._set_color_button(self.curve_color_button, "#808080")
         else:
-            self.curve_label_input.setText(curve.label)
+            if sync_selector:
+                self._sync_curve_selector(curve.id)
+            self.curve_label_input.setEditText(curve.label)
+            if sync_selector:
+                self._sync_curve_table_selection(curve.id)
             self._set_color_button(self.curve_color_button, curve.style.color)
             self._set_combo_to_data(self.curve_line_style_selector, curve.style.line_style)
             self.curve_line_weight_spin.setValue(curve.style.line_weight)
@@ -1087,6 +1109,31 @@ class ControlsPanel(QWidget):
             self.curve_opacity_slider.setValue(round(curve.style.opacity * 100))
 
         self._updating_style_controls = False
+
+    def _sync_curve_selector(self, curve_id: str | None) -> None:
+        if self._updating_curve_selector:
+            return
+
+        self._updating_curve_selector = True
+        if curve_id is None:
+            self.curve_label_input.setCurrentIndex(-1)
+        else:
+            index = self.curve_label_input.findData(curve_id)
+            if index >= 0:
+                self.curve_label_input.setCurrentIndex(index)
+        self._updating_curve_selector = False
+
+    def _sync_curve_table_selection(self, curve_id: str) -> None:
+        if self._updating_curve_table:
+            return
+
+        self._updating_curve_table = True
+        for row in range(self.curve_table.rowCount()):
+            item = self.curve_table.item(row, 0)
+            if item is not None and item.data(Qt.ItemDataRole.UserRole) == curve_id:
+                self.curve_table.selectRow(row)
+                break
+        self._updating_curve_table = False
 
     def set_plot_style(self, plot_style: PlotStyleState) -> None:
         self._updating_plot_style_controls = True
@@ -1166,10 +1213,32 @@ class ControlsPanel(QWidget):
         if emit:
             self._emit_plot_style_changed()
 
-    def _handle_curve_label_input_changed(self, text: str) -> None:
-        if self._updating_style_controls or self._selected_curve_id is None:
+    def _handle_curve_selector_changed(self, index: int) -> None:
+        if self._updating_curve_selector or self._updating_style_controls or index < 0:
             return
-        self.curve_label_changed.emit(self._selected_curve_id, text.strip())
+        curve_id = self.curve_label_input.itemData(index, Qt.ItemDataRole.UserRole)
+        if curve_id is not None:
+            self._selected_curve_id = str(curve_id)
+            self.curve_selected.emit(str(curve_id))
+
+    def _handle_curve_selector_highlighted(self, index: int) -> None:
+        if self._updating_curve_selector or self._updating_style_controls or index < 0:
+            return
+        curve_id = self.curve_label_input.itemData(index, Qt.ItemDataRole.UserRole)
+        if curve_id is not None:
+            self.curve_highlighted.emit(str(curve_id))
+
+    def _handle_curve_label_input_changed(self) -> None:
+        if (
+            self._updating_style_controls
+            or self._updating_curve_selector
+            or self._selected_curve_id is None
+        ):
+            return
+        self.curve_label_changed.emit(
+            self._selected_curve_id,
+            self.curve_label_input.currentText().strip(),
+        )
 
     def _choose_curve_color(self) -> None:
         if self._selected_curve_id is None:
