@@ -86,6 +86,7 @@ class ParseFileHeadersTests(unittest.TestCase):
 
         self.assertEqual(result["parameters"], ["time", "pressure", "temperature"])
         self.assertEqual(result["units"], ["s", "Pa", "K"])
+        self.assertEqual(result["plot_labels"], ["", "", ""])
         self.assertEqual(result["data_start_row"], 2)
         self.assertEqual(result["num_data_rows"], 2)
         self.assertEqual(result["warnings"], [])
@@ -99,7 +100,29 @@ class ParseFileHeadersTests(unittest.TestCase):
 
         self.assertEqual(result["parameters"], ["time", "pressure"])
         self.assertEqual(result["units"], ["", ""])
+        self.assertEqual(result["plot_labels"], ["", ""])
         self.assertEqual(result["data_start_row"], 1)
+        self.assertEqual(result["num_data_rows"], 2)
+
+    def test_parses_optional_plot_label_row(self) -> None:
+        with temporary_directory() as directory:
+            path = Path(directory) / "case.dat"
+            path.write_text(
+                "time,pressure,temperature\n"
+                "s,Pa,K\n"
+                "elapsed,Case A pressure,Case A temperature\n"
+                "0,101325,300\n"
+                "1,101500,301\n",
+                encoding="utf-8",
+            )
+
+            result = parse_file_headers(str(path), name_row=0, unit_row=1, label_row=2)
+
+        self.assertEqual(
+            result["plot_labels"],
+            ["elapsed", "Case A pressure", "Case A temperature"],
+        )
+        self.assertEqual(result["data_start_row"], 3)
         self.assertEqual(result["num_data_rows"], 2)
 
     def test_warns_for_empty_and_numeric_parameter_names(self) -> None:
@@ -230,7 +253,9 @@ def _batch_template(file_paths: list[Path], output: Path) -> dict:
         "curve_label": "pressure",
         "name_row": 0,
         "unit_row": 1,
+        "label_row": None,
         "data_start_row": 2,
+        "y_column_index": 1,
         "figure_size_inches": [6.0, 4.0],
         "dpi": 100,
         "curve_style": {
@@ -244,8 +269,19 @@ def _batch_template(file_paths: list[Path], output: Path) -> dict:
         "plot_style": {
             "x_range": {"auto": True, "minimum": 0.0, "maximum": 1.0},
             "y_range": {"auto": True, "minimum": 0.0, "maximum": 1.0},
+            "plot_title": "",
+            "x_axis_title": "",
+            "y_axis_title": "",
             "font_size": 10,
             "grid": {"enabled": True, "color": "#b0b0b0", "opacity": 0.3},
+            "legend": {
+                "visible": True,
+                "location": "best",
+                "frame_enabled": True,
+                "background_color": "#ffffff",
+                "border_color": "#808080",
+                "opacity": 0.8,
+            },
         },
     }
 

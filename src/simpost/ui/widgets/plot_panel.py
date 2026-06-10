@@ -7,7 +7,7 @@ from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
-from simpost.ui.plot_models import CurveState, PlotStyleState
+from simpost.ui.plot_models import CurveState, LegendStyle, PlotStyleState
 
 
 LINE_STYLE_MAP = {
@@ -38,6 +38,8 @@ class PlotPanel(QWidget):
         self._legend_artist_to_line: dict[object, Line2D] = {}
         self._line_to_curve_id: dict[Line2D, str] = {}
         self._curve_visibility: dict[str, bool] = {}
+        self._last_legend_style: LegendStyle | None = None
+        self._last_font_size = 10
         self._set_empty_state()
         self.canvas.mpl_connect("pick_event", self._handle_pick)
 
@@ -77,8 +79,11 @@ class PlotPanel(QWidget):
             else:
                 self.axes.grid(False)
         first_curve = curves[0]
-        self.axes.set_xlabel(first_curve.x_label, fontsize=plot_style.font_size)
-        self.axes.set_ylabel(first_curve.y_label, fontsize=plot_style.font_size)
+        x_label = plot_style.x_axis_title.strip() or first_curve.x_label
+        y_label = plot_style.y_axis_title.strip() or first_curve.y_label
+        self.axes.set_title(plot_style.plot_title.strip(), fontsize=plot_style.font_size + 2)
+        self.axes.set_xlabel(x_label, fontsize=plot_style.font_size)
+        self.axes.set_ylabel(y_label, fontsize=plot_style.font_size)
         self.axes.tick_params(axis="both", labelsize=plot_style.font_size)
 
         for curve in curves:
@@ -103,7 +108,9 @@ class PlotPanel(QWidget):
         self.axes.relim()
         self.axes.autoscale_view()
         self._apply_axis_ranges(plot_style)
-        self._refresh_legend()
+        self._last_legend_style = plot_style.legend
+        self._last_font_size = plot_style.font_size
+        self._refresh_legend(plot_style.legend, plot_style.font_size)
         self.canvas.draw_idle()
 
     def _apply_axis_ranges(self, plot_style: PlotStyleState) -> None:
@@ -120,11 +127,28 @@ class PlotPanel(QWidget):
             "y_range": {"auto": False, "minimum": float(y_min), "maximum": float(y_max)},
         }
 
-    def _refresh_legend(self) -> None:
+    def _refresh_legend(self, legend_style: LegendStyle | None, font_size: int) -> None:
         self._legend_artist_to_line.clear()
-        legend = self.axes.legend()
+        if legend_style is not None and not legend_style.visible:
+            legend = self.axes.get_legend()
+            if legend is not None:
+                legend.remove()
+            return
+
+        location = legend_style.location if legend_style is not None else "best"
+        frame_enabled = legend_style.frame_enabled if legend_style is not None else True
+        try:
+            legend = self.axes.legend(loc=location, frameon=frame_enabled, fontsize=font_size)
+        except ValueError:
+            legend = self.axes.legend(loc="best", frameon=frame_enabled, fontsize=font_size)
         if legend is None:
             return
+
+        if legend_style is not None and frame_enabled:
+            frame = legend.get_frame()
+            frame.set_facecolor(legend_style.background_color)
+            frame.set_edgecolor(legend_style.border_color)
+            frame.set_alpha(legend_style.opacity)
 
         for legend_line, original_line in zip(legend.get_lines(), self._lines):
             legend_line.set_picker(True)
@@ -147,5 +171,5 @@ class PlotPanel(QWidget):
         curve_id = self._line_to_curve_id.get(line)
         if curve_id is not None:
             self._curve_visibility[curve_id] = line.get_visible()
-        self._refresh_legend()
+        self._refresh_legend(self._last_legend_style, self._last_font_size)
         self.canvas.draw_idle()

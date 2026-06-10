@@ -30,7 +30,9 @@ class CurveState:
     y_param: str
     name_row: int
     unit_row: int | None
+    label_row: int | None
     data_start_row: int
+    y_column_index: int
     x: list[float]
     y: list[float]
     x_label: str
@@ -63,19 +65,43 @@ class GridStyle:
 
 
 @dataclass
+class LegendStyle:
+    visible: bool = True
+    location: str = "best"
+    frame_enabled: bool = True
+    background_color: str = "#ffffff"
+    border_color: str = "#808080"
+    opacity: float = 0.8
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
 class PlotStyleState:
     x_range: AxisRangeState
     y_range: AxisRangeState
+    plot_title: str = ""
+    x_axis_title: str = ""
+    y_axis_title: str = ""
     font_size: int = 10
     grid: GridStyle | None = None
+    legend: LegendStyle | None = None
 
     def __post_init__(self) -> None:
         if self.grid is None:
             self.grid = GridStyle()
+        if self.legend is None:
+            self.legend = LegendStyle()
 
     @classmethod
     def defaults(cls) -> "PlotStyleState":
-        return cls(x_range=AxisRangeState(), y_range=AxisRangeState(), grid=GridStyle())
+        return cls(
+            x_range=AxisRangeState(),
+            y_range=AxisRangeState(),
+            grid=GridStyle(),
+            legend=LegendStyle(),
+        )
 
     def to_dict(self) -> dict:
         return asdict(self)

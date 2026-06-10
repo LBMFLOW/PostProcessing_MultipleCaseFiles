@@ -45,25 +45,27 @@ Response fields:
 - `source_path`: originating file path.
 - `variables`: available variable names.
 
-### `parse_file_headers(filepath: str, name_row: int = 0, unit_row: int | None = 1) -> dict`
+### `parse_file_headers(filepath: str, name_row: int = 0, unit_row: int | None = 1, label_row: int | None = None) -> dict`
 
-Parses parameter names and units from a comma-separated simulation file. Row indexes are zero-based in the backend API. The UI presents them as one-based row numbers.
+Parses parameter names, units, and optional plot labels from a comma-separated simulation file. Row indexes are zero-based in the backend API. The UI presents them as one-based row numbers.
 
 Arguments:
 
 - `filepath`: file selected in the scan results.
 - `name_row`: zero-based row index containing parameter names.
 - `unit_row`: zero-based row index containing units, or `None` when the file has no units row.
+- `label_row`: zero-based row index containing preferred curve labels, or `None` when labels should use the normal defaults.
 
 Response fields:
 
 - `parameters`: stripped parameter names, in file order.
 - `units`: stripped units aligned to `parameters`; absent units are returned as empty strings.
+- `plot_labels`: stripped curve labels aligned to `parameters`; absent labels are returned as empty strings.
 - `data_start_row`: zero-based row index where numeric data begins.
 - `num_data_rows`: count of non-empty data rows after `data_start_row`.
 - `warnings`: warning dictionaries for invalid metadata, such as empty or numeric parameter names.
 
-The frontend stores user-edited parameter and unit overrides in application state only. It must not write those edits back to the source simulation file.
+The frontend stores user-edited parameter, unit, and curve-label overrides in application state only. It must not write those edits back to the source simulation file.
 
 ### `load_dataset(request: LoadDatasetRequest) -> DatasetDetail`
 
@@ -107,6 +109,7 @@ Frontend curve behavior:
 
 - Multiple checked files can produce one curve per file using a shared x/y parameter pair.
 - Multiple selected Y variables can produce one curve per Y variable from the highlighted file.
+- The optional label row can supply default curve labels by column. Multiple-file plots use each file's label row when configured, otherwise they use filenames.
 - The application state owns the curve list, including label, source file, x parameter, y parameter, numeric arrays, display labels, and color.
 - The plot redraws from the curve list whenever curves are added, renamed, or deleted.
 
@@ -114,9 +117,9 @@ Curve and style state:
 
 - `CurveStyle`: color, line style, line weight, marker style, marker size, and opacity.
 - `CurveState`: curve id, editable label, source file/path, x/y parameter names, numeric arrays, display labels, current style, and default style.
-- `PlotStyleState`: X/Y range state, font size, and grid style.
+- `PlotStyleState`: plot title, axis title overrides, X/Y range state, font size, grid style, and legend style.
 - These are defined as Python dataclasses in `src/simpost/ui/plot_models.py`.
-- Per-curve styles, axis ranges, font size, and grid state redraw the plot immediately when changed.
+- Per-curve styles, title/axis labels, legend settings, axis ranges, font size, and grid state redraw the plot immediately when changed.
 
 ### `batch_export_svg(plot_template: dict, progress_callback=None) -> list[dict]`
 
@@ -133,8 +136,9 @@ Template fields:
 - `x_label`, `y_label`: axis labels, usually formatted as `Parameter (Unit)`.
 - `curve_label`: legend label for the exported curve.
 - `name_row`, `unit_row`, `data_start_row`: parser row configuration from the template file.
+- `label_row`, `y_column_index`: optional curve-label row configuration used to extract per-file export labels.
 - `curve_style`: serialized `CurveStyle` with `color`, `line_style`, `line_weight`, `marker_style`, `marker_size`, and `opacity`.
-- `plot_style`: serialized `PlotStyleState` with `x_range`, `y_range`, `font_size`, and `grid`.
+- `plot_style`: serialized `PlotStyleState` with `plot_title`, axis-title overrides, `x_range`, `y_range`, `font_size`, `grid`, and `legend`.
 - `figure_size_inches`: two-value width/height list.
 - `dpi`: figure DPI.
 

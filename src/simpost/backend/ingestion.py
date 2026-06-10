@@ -51,11 +51,17 @@ def scan_directory(directory_path: str, extensions: list[str]) -> list[ScanResul
     return results
 
 
-def parse_file_headers(filepath: str, name_row: int = 0, unit_row: int | None = 1) -> dict:
+def parse_file_headers(
+    filepath: str,
+    name_row: int = 0,
+    unit_row: int | None = 1,
+    label_row: int | None = None,
+) -> dict:
     """Parse parameter names and units from a comma-separated simulation file.
 
     Row indexes are zero-based. Set unit_row to None when the file does not
-    contain a dedicated units row.
+    contain a dedicated units row. Set label_row to a row that contains
+    preferred curve labels.
     """
 
     path = Path(filepath).expanduser()
@@ -67,6 +73,8 @@ def parse_file_headers(filepath: str, name_row: int = 0, unit_row: int | None = 
         raise ValueError("name_row must be zero or greater.")
     if unit_row is not None and unit_row < 0:
         raise ValueError("unit_row must be zero or greater when provided.")
+    if label_row is not None and label_row < 0:
+        raise ValueError("label_row must be zero or greater when provided.")
 
     try:
         rows = _read_csv_rows(path, include_empty_rows=True)
@@ -78,7 +86,8 @@ def parse_file_headers(filepath: str, name_row: int = 0, unit_row: int | None = 
 
     parameters = [cell.strip() for cell in rows[name_row]]
     units = _read_units_row(rows, unit_row, len(parameters))
-    data_start_row = _data_start_row(name_row, unit_row)
+    plot_labels = _read_label_row(rows, label_row, len(parameters))
+    data_start_row = _data_start_row(name_row, unit_row, label_row)
     warnings = _parameter_warnings(parameters)
 
     if unit_row is not None and unit_row >= len(rows):
@@ -89,10 +98,19 @@ def parse_file_headers(filepath: str, name_row: int = 0, unit_row: int | None = 
                 "message": f"Units row {unit_row + 1} is outside the file.",
             }
         )
+    if label_row is not None and label_row >= len(rows):
+        warnings.append(
+            {
+                "column": None,
+                "parameter": "",
+                "message": f"Label row {label_row + 1} is outside the file.",
+            }
+        )
 
     return {
         "parameters": parameters,
         "units": units,
+        "plot_labels": plot_labels,
         "data_start_row": data_start_row,
         "num_data_rows": _count_data_rows(rows, data_start_row),
         "warnings": warnings,
@@ -215,10 +233,23 @@ def _read_units_row(rows: list[list[str]], unit_row: int | None, parameter_count
     return units[:parameter_count]
 
 
-def _data_start_row(name_row: int, unit_row: int | None) -> int:
-    if unit_row is None:
-        return name_row + 1
-    return max(name_row, unit_row) + 1
+def _read_label_row(rows: list[list[str]], label_row: int | None, parameter_count: int) -> list[str]:
+    if label_row is None or label_row >= len(rows):
+        return [""] * parameter_count
+
+    labels = [cell.strip() for cell in rows[label_row]]
+    if len(labels) < parameter_count:
+        labels.extend([""] * (parameter_count - len(labels)))
+    return labels[:parameter_count]
+
+
+def _data_start_row(name_row: int, unit_row: int | None, label_row: int | None = None) -> int:
+    configured_rows = [name_row]
+    if unit_row is not None:
+        configured_rows.append(unit_row)
+    if label_row is not None:
+        configured_rows.append(label_row)
+    return max(configured_rows) + 1
 
 
 def _count_data_rows(rows: list[list[str]], data_start_row: int) -> int:

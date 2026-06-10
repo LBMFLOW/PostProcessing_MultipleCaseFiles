@@ -78,6 +78,7 @@ def _export_one_file(plot_template: dict, file_info: dict, output_directory: Pat
             filepath,
             name_row=int(plot_template["name_row"]),
             unit_row=plot_template.get("unit_row"),
+            label_row=plot_template.get("label_row"),
         )
         plot_data = get_plot_data(
             filepath,
@@ -88,8 +89,14 @@ def _export_one_file(plot_template: dict, file_info: dict, output_directory: Pat
             data_start_row=int(header_info["data_start_row"]),
         )
 
-        plot_data["x_label"] = str(plot_template.get("x_label") or plot_data["x_label"])
-        plot_data["y_label"] = str(plot_template.get("y_label") or plot_data["y_label"])
+        plot_style = plot_template["plot_style"]
+        plot_data["x_label"] = str(
+            plot_style.get("x_axis_title") or plot_template.get("x_label") or plot_data["x_label"]
+        )
+        plot_data["y_label"] = str(
+            plot_style.get("y_axis_title") or plot_template.get("y_label") or plot_data["y_label"]
+        )
+        plot_data["curve_label"] = _curve_label(plot_template, header_info)
         _save_svg(plot_template, plot_data, output_path)
         return {"filepath": filepath, "output_path": str(output_path), "success": True, "error": ""}
     except Exception as exc:
@@ -106,7 +113,7 @@ def _save_svg(plot_template: dict, plot_data: dict, output_path: Path) -> None:
         axes.plot(
             plot_data["x"],
             plot_data["y"],
-            label=str(plot_template.get("curve_label") or plot_template["y_label"]),
+            label=str(plot_data.get("curve_label") or plot_template["y_label"]),
             color=style.get("color", "#0072B2"),
             linestyle=LINE_STYLE_MAP.get(style.get("line_style", "solid"), "-"),
             linewidth=float(style.get("line_weight", 1.5)),
@@ -117,6 +124,7 @@ def _save_svg(plot_template: dict, plot_data: dict, output_path: Path) -> None:
 
         plot_style = plot_template["plot_style"]
         font_size = int(plot_style.get("font_size", 10))
+        axes.set_title(str(plot_style.get("plot_title") or ""), fontsize=font_size + 2)
         axes.set_xlabel(plot_data["x_label"], fontsize=font_size)
         axes.set_ylabel(plot_data["y_label"], fontsize=font_size)
         axes.tick_params(axis="both", labelsize=font_size)
@@ -139,7 +147,22 @@ def _save_svg(plot_template: dict, plot_data: dict, output_path: Path) -> None:
             if _has_valid_range(y_range):
                 axes.set_ylim(float(y_range["minimum"]), float(y_range["maximum"]))
 
-        axes.legend(fontsize=font_size)
+        legend_style = plot_style.get("legend") or {}
+        if legend_style.get("visible", True):
+            frame_enabled = legend_style.get("frame_enabled", True)
+            try:
+                legend = axes.legend(
+                    loc=legend_style.get("location", "best"),
+                    frameon=frame_enabled,
+                    fontsize=font_size,
+                )
+            except ValueError:
+                legend = axes.legend(loc="best", frameon=frame_enabled, fontsize=font_size)
+            if legend is not None and legend_style.get("frame_enabled", True):
+                frame = legend.get_frame()
+                frame.set_facecolor(legend_style.get("background_color", "#ffffff"))
+                frame.set_edgecolor(legend_style.get("border_color", "#808080"))
+                frame.set_alpha(float(legend_style.get("opacity", 0.8)))
         figure.savefig(output_path, format="svg", bbox_inches="tight")
     finally:
         plt.close(figure)
@@ -149,6 +172,18 @@ def _has_valid_range(range_state: dict) -> bool:
     minimum = float(range_state.get("minimum", 0.0))
     maximum = float(range_state.get("maximum", 0.0))
     return minimum < maximum
+
+
+def _curve_label(plot_template: dict, header_info: dict) -> str:
+    label_row = plot_template.get("label_row")
+    if label_row is not None:
+        column_index = int(plot_template.get("y_column_index", -1))
+        labels = header_info.get("plot_labels", [])
+        if 0 <= column_index < len(labels):
+            label = str(labels[column_index]).strip()
+            if label:
+                return label
+    return str(plot_template.get("curve_label") or plot_template["y_label"])
 
 
 def _render_filename(plot_template: dict, file_info: dict) -> str:

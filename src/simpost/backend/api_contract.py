@@ -139,8 +139,9 @@ class BackendAPI(Protocol):
         filepath: str,
         name_row: int = 0,
         unit_row: int | None = 1,
+        label_row: int | None = None,
     ) -> dict:
-        """Parse parameter names, units, data start row, and warnings from a file."""
+        """Parse parameter names, units, curve labels, data start row, and warnings."""
 
     def list_datasets(self) -> list[DatasetSummary]:
         """Return datasets discovered in the current session."""

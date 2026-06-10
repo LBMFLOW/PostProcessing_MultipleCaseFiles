@@ -38,8 +38,9 @@ class BackendController(BackendAPI):
         filepath: str,
         name_row: int = 0,
         unit_row: int | None = 1,
+        label_row: int | None = None,
     ) -> dict:
-        return parse_file_headers(filepath, name_row, unit_row)
+        return parse_file_headers(filepath, name_row, unit_row, label_row)
 
     def list_datasets(self) -> list[DatasetSummary]:
         raise NotImplementedError

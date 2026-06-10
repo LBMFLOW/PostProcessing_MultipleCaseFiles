@@ -26,7 +26,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from simpost.ui.plot_models import AxisRangeState, CurveState, CurveStyle, GridStyle, PlotStyleState
+from simpost.ui.plot_models import (
+    AxisRangeState,
+    CurveState,
+    CurveStyle,
+    GridStyle,
+    LegendStyle,
+    PlotStyleState,
+)
 
 
 class ControlsPanel(QWidget):
@@ -52,17 +59,22 @@ class ControlsPanel(QWidget):
         self._directory_path = ""
         self._files: list[dict] = []
         self._current_file: dict | None = None
-        self._current_header_config: tuple[int, int | None] | None = None
+        self._current_header_config: tuple[int, int | None, int | None] | None = None
         self._current_header_info: dict | None = None
         self._current_raw_parameters: list[str] = []
         self._current_raw_units: list[str] = []
+        self._current_raw_labels: list[str] = []
         self._header_overrides: dict[str, dict] = {}
         self._updating_table = False
+        self._updating_select_all = False
         self._updating_header = False
         self._updating_curve_table = False
         self._updating_style_controls = False
         self._updating_plot_style_controls = False
         self._selected_curve_id: str | None = None
+        self._grid_color = "#b0b0b0"
+        self._legend_background_color = "#ffffff"
+        self._legend_border_color = "#808080"
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -110,6 +122,11 @@ class ControlsPanel(QWidget):
         group = QGroupBox("Files")
         layout = QVBoxLayout(group)
 
+        self.select_all_files_checkbox = QCheckBox("Select all files")
+        self.select_all_files_checkbox.setTristate(True)
+        self.select_all_files_checkbox.stateChanged.connect(self._handle_select_all_files_changed)
+        layout.addWidget(self.select_all_files_checkbox)
+
         self.file_table = QTableWidget(0, 6)
         self.file_table.setHorizontalHeaderLabels(["Use", "", "Filename", "Rows", "Columns", "Size"])
         self.file_table.verticalHeader().setVisible(False)
@@ -149,14 +166,25 @@ class ControlsPanel(QWidget):
         self.unit_row_spin.setValue(2)
         self.unit_row_spin.valueChanged.connect(lambda _value: self.header_config_changed.emit())
 
+        self.label_row_checkbox = QCheckBox("Use curve label row")
+        self.label_row_checkbox.setChecked(False)
+        self.label_row_checkbox.stateChanged.connect(self._handle_label_row_enabled_changed)
+
+        self.label_row_spin = QSpinBox()
+        self.label_row_spin.setRange(1, 999_999)
+        self.label_row_spin.setValue(3)
+        self.label_row_spin.setEnabled(False)
+        self.label_row_spin.valueChanged.connect(lambda _value: self.header_config_changed.emit())
+
         row_form = QFormLayout()
         row_form.addRow("Parameter row", self.name_row_spin)
         row_form.addRow(self.unit_row_checkbox, self.unit_row_spin)
+        row_form.addRow(self.label_row_checkbox, self.label_row_spin)
 
         self.header_summary_label = QLabel("Select a file to preview headers")
 
-        self.header_preview_table = QTableWidget(0, 3)
-        self.header_preview_table.setHorizontalHeaderLabels(["", "Parameter", "Unit"])
+        self.header_preview_table = QTableWidget(0, 4)
+        self.header_preview_table.setHorizontalHeaderLabels(["", "Parameter", "Unit", "Curve label"])
         self.header_preview_table.verticalHeader().setVisible(False)
         self.header_preview_table.setAlternatingRowColors(True)
         self.header_preview_table.itemChanged.connect(self._handle_header_item_changed)
@@ -165,6 +193,7 @@ class ControlsPanel(QWidget):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
 
         layout.addLayout(row_form)
         layout.addWidget(self.header_summary_label)
@@ -350,6 +379,18 @@ class ControlsPanel(QWidget):
         group = QGroupBox("Global")
         form = QFormLayout(group)
 
+        self.plot_title_input = QLineEdit()
+        self.plot_title_input.setPlaceholderText("Auto/blank")
+        self.plot_title_input.textChanged.connect(lambda _text: self._emit_plot_style_changed())
+
+        self.x_axis_title_input = QLineEdit()
+        self.x_axis_title_input.setPlaceholderText("Auto from selected X parameter")
+        self.x_axis_title_input.textChanged.connect(lambda _text: self._emit_plot_style_changed())
+
+        self.y_axis_title_input = QLineEdit()
+        self.y_axis_title_input.setPlaceholderText("Auto from selected Y parameter")
+        self.y_axis_title_input.textChanged.connect(lambda _text: self._emit_plot_style_changed())
+
         self.font_size_spin = QSpinBox()
         self.font_size_spin.setRange(6, 32)
         self.font_size_spin.setValue(10)
@@ -360,7 +401,6 @@ class ControlsPanel(QWidget):
         self.grid_checkbox.stateChanged.connect(lambda _state: self._emit_plot_style_changed())
 
         self.grid_color_button = QPushButton("Grid color")
-        self._grid_color = "#b0b0b0"
         self._set_color_button(self.grid_color_button, self._grid_color)
         self.grid_color_button.clicked.connect(self._choose_grid_color)
 
@@ -368,6 +408,50 @@ class ControlsPanel(QWidget):
         self.grid_opacity_slider.setRange(0, 100)
         self.grid_opacity_slider.setValue(30)
         self.grid_opacity_slider.valueChanged.connect(lambda _value: self._emit_plot_style_changed())
+
+        self.legend_checkbox = QCheckBox("Show legend")
+        self.legend_checkbox.setChecked(True)
+        self.legend_checkbox.stateChanged.connect(lambda _state: self._emit_plot_style_changed())
+
+        self.legend_location_selector = QComboBox()
+        for text, value in (
+            ("Best", "best"),
+            ("Upper right", "upper right"),
+            ("Upper left", "upper left"),
+            ("Lower left", "lower left"),
+            ("Lower right", "lower right"),
+            ("Right", "right"),
+            ("Center left", "center left"),
+            ("Center right", "center right"),
+            ("Lower center", "lower center"),
+            ("Upper center", "upper center"),
+            ("Center", "center"),
+        ):
+            self.legend_location_selector.addItem(text, value)
+        self.legend_location_selector.currentIndexChanged.connect(
+            lambda _index: self._emit_plot_style_changed()
+        )
+
+        self.legend_frame_checkbox = QCheckBox("Frame")
+        self.legend_frame_checkbox.setChecked(True)
+        self.legend_frame_checkbox.stateChanged.connect(
+            lambda _state: self._emit_plot_style_changed()
+        )
+
+        self.legend_background_button = QPushButton("Legend background")
+        self._set_color_button(self.legend_background_button, self._legend_background_color)
+        self.legend_background_button.clicked.connect(self._choose_legend_background_color)
+
+        self.legend_border_button = QPushButton("Legend border")
+        self._set_color_button(self.legend_border_button, self._legend_border_color)
+        self.legend_border_button.clicked.connect(self._choose_legend_border_color)
+
+        self.legend_opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self.legend_opacity_slider.setRange(0, 100)
+        self.legend_opacity_slider.setValue(80)
+        self.legend_opacity_slider.valueChanged.connect(
+            lambda _value: self._emit_plot_style_changed()
+        )
 
         self.reset_styles_button = QPushButton("Reset all styles")
         self.reset_styles_button.clicked.connect(self.reset_all_styles_requested.emit)
@@ -378,10 +462,19 @@ class ControlsPanel(QWidget):
         self.batch_export_button = QPushButton("Batch Export")
         self.batch_export_button.clicked.connect(self.batch_export_requested.emit)
 
+        form.addRow("Plot title", self.plot_title_input)
+        form.addRow("X title", self.x_axis_title_input)
+        form.addRow("Y title", self.y_axis_title_input)
         form.addRow("Font size", self.font_size_spin)
         form.addRow("Grid", self.grid_checkbox)
         form.addRow("Grid color", self.grid_color_button)
         form.addRow("Grid opacity", self.grid_opacity_slider)
+        form.addRow("Legend", self.legend_checkbox)
+        form.addRow("Legend location", self.legend_location_selector)
+        form.addRow("Legend frame", self.legend_frame_checkbox)
+        form.addRow("Legend background", self.legend_background_button)
+        form.addRow("Legend border", self.legend_border_button)
+        form.addRow("Legend opacity", self.legend_opacity_slider)
         form.addRow("", self.reset_styles_button)
         form.addRow("", self.apply_uniform_style_button)
         form.addRow("", self.batch_export_button)
@@ -443,6 +536,7 @@ class ControlsPanel(QWidget):
             self.file_table.selectRow(0)
         else:
             self.clear_header_preview()
+        self._sync_select_all_checkbox()
         self._update_summary()
 
     def selected_files(self) -> list[dict]:
@@ -463,10 +557,11 @@ class ControlsPanel(QWidget):
             return None
         return item.data(Qt.ItemDataRole.UserRole)
 
-    def header_config(self) -> tuple[int, int | None]:
+    def header_config(self) -> tuple[int, int | None, int | None]:
         name_row = self.name_row_spin.value() - 1
         unit_row = self.unit_row_spin.value() - 1 if self.unit_row_checkbox.isChecked() else None
-        return name_row, unit_row
+        label_row = self.label_row_spin.value() - 1 if self.label_row_checkbox.isChecked() else None
+        return name_row, unit_row, label_row
 
     def set_header_preview(self, file_info: dict, header_info: dict) -> None:
         self._current_file = file_info
@@ -476,8 +571,10 @@ class ControlsPanel(QWidget):
         path = str(file_info["path"])
         raw_parameters = list(header_info["parameters"])
         raw_units = list(header_info["units"])
+        raw_labels = list(header_info.get("plot_labels", []))
         parameters = list(raw_parameters)
         units = list(raw_units)
+        labels = list(raw_labels)
         override = self._header_overrides.get(path)
         if (
             override
@@ -486,9 +583,11 @@ class ControlsPanel(QWidget):
         ):
             parameters = list(override["parameters"])
             units = list(override["units"])
+            labels = list(override.get("labels", labels))
 
         self._current_raw_parameters = raw_parameters
         self._current_raw_units = raw_units
+        self._current_raw_labels = raw_labels
 
         general_warnings: list[str] = []
         for warning in header_info.get("warnings", []):
@@ -519,6 +618,14 @@ class ControlsPanel(QWidget):
                 | Qt.ItemFlag.ItemIsEditable
             )
             self.header_preview_table.setItem(row, 2, unit_item)
+
+            label_item = QTableWidgetItem(labels[row] if row < len(labels) else "")
+            label_item.setFlags(
+                Qt.ItemFlag.ItemIsEnabled
+                | Qt.ItemFlag.ItemIsSelectable
+                | Qt.ItemFlag.ItemIsEditable
+            )
+            self.header_preview_table.setItem(row, 3, label_item)
             self._refresh_parameter_warning(row)
 
         summary = (
@@ -531,7 +638,7 @@ class ControlsPanel(QWidget):
 
         self._updating_header = False
         self._store_current_header_overrides()
-        self._populate_axis_selectors(parameters, units)
+        self._populate_axis_selectors(parameters, units, labels)
 
     def clear_header_preview(self) -> None:
         self._current_file = None
@@ -539,9 +646,10 @@ class ControlsPanel(QWidget):
         self._current_header_info = None
         self._current_raw_parameters = []
         self._current_raw_units = []
+        self._current_raw_labels = []
         self.header_summary_label.setText("Select a file to preview headers")
         self.header_preview_table.setRowCount(0)
-        self._populate_axis_selectors([], [])
+        self._populate_axis_selectors([], [], [])
 
     def _emit_highlighted_file(self) -> None:
         if self._updating_table:
@@ -555,19 +663,60 @@ class ControlsPanel(QWidget):
     def _handle_file_selection_changed(self, item: QTableWidgetItem) -> None:
         if self._updating_table or item.column() != 0:
             return
+        self._sync_select_all_checkbox()
         self._update_summary()
+
+    def _handle_select_all_files_changed(self, state: int) -> None:
+        if self._updating_select_all or self._updating_table:
+            return
+        if state == Qt.CheckState.PartiallyChecked.value:
+            return
+
+        self._updating_table = True
+        check_state = (
+            Qt.CheckState.Checked
+            if state == Qt.CheckState.Checked.value
+            else Qt.CheckState.Unchecked
+        )
+        for row in range(self.file_table.rowCount()):
+            item = self.file_table.item(row, 0)
+            if item is not None:
+                item.setCheckState(check_state)
+        self._updating_table = False
+        self._sync_select_all_checkbox()
+        self._update_summary()
+
+    def _sync_select_all_checkbox(self) -> None:
+        total = self.file_table.rowCount()
+        selected = len(self.selected_files())
+        self._updating_select_all = True
+        if total == 0 or selected == 0:
+            self.select_all_files_checkbox.setCheckState(Qt.CheckState.Unchecked)
+        elif selected == total:
+            self.select_all_files_checkbox.setCheckState(Qt.CheckState.Checked)
+        else:
+            self.select_all_files_checkbox.setCheckState(Qt.CheckState.PartiallyChecked)
+        self._updating_select_all = False
 
     def _handle_unit_row_enabled_changed(self, _state: int) -> None:
         self.unit_row_spin.setEnabled(self.unit_row_checkbox.isChecked())
         self.header_config_changed.emit()
 
+    def _handle_label_row_enabled_changed(self, _state: int) -> None:
+        self.label_row_spin.setEnabled(self.label_row_checkbox.isChecked())
+        self.header_config_changed.emit()
+
     def _handle_header_item_changed(self, item: QTableWidgetItem) -> None:
-        if self._updating_header or item.column() not in (1, 2):
+        if self._updating_header or item.column() not in (1, 2, 3):
             return
         if item.column() == 1:
             self._refresh_parameter_warning(item.row())
         self._store_current_header_overrides()
-        self._populate_axis_selectors(self._current_parameters(), self._current_units())
+        self._populate_axis_selectors(
+            self._current_parameters(),
+            self._current_units(),
+            self._current_labels(),
+        )
 
     def _store_current_header_overrides(self) -> None:
         if self._current_file is None or self._current_header_config is None:
@@ -577,6 +726,7 @@ class ControlsPanel(QWidget):
             "config": self._current_header_config,
             "parameters": self._current_parameters(),
             "units": self._current_units(),
+            "labels": self._current_labels(),
         }
 
     def _current_parameters(self) -> list[str]:
@@ -593,6 +743,13 @@ class ControlsPanel(QWidget):
             units.append(item.text().strip() if item is not None else "")
         return units
 
+    def _current_labels(self) -> list[str]:
+        labels: list[str] = []
+        for row in range(self.header_preview_table.rowCount()):
+            item = self.header_preview_table.item(row, 3)
+            labels.append(item.text().strip() if item is not None else "")
+        return labels
+
     def plot_selection(self) -> dict | None:
         if self._current_file is None or self._current_header_config is None:
             return None
@@ -604,22 +761,31 @@ class ControlsPanel(QWidget):
         if not isinstance(x_data, dict) or not isinstance(y_data, dict):
             return None
 
-        name_row, unit_row = self._current_header_config
+        name_row, unit_row, label_row = self._current_header_config
         return {
             "filepath": str(self._current_file["path"]),
             "filename": str(self._current_file["filename"]),
             "x_param": x_data["raw_parameter"],
             "y_param": y_data["raw_parameter"],
+            "x_column_index": x_data["column_index"],
+            "y_column_index": y_data["column_index"],
             "x_display": x_data["display_parameter"],
             "y_display": y_data["display_parameter"],
             "x_label": x_data["axis_label"],
             "y_label": y_data["axis_label"],
+            "curve_label": y_data["curve_label"],
             "name_row": name_row,
             "unit_row": unit_row,
+            "label_row": label_row,
             "data_start_row": int(self._current_header_info["data_start_row"]),
         }
 
-    def _populate_axis_selectors(self, parameters: list[str], units: list[str]) -> None:
+    def _populate_axis_selectors(
+        self,
+        parameters: list[str],
+        units: list[str],
+        labels: list[str],
+    ) -> None:
         display_parameters = [
             parameter if parameter else f"Column {index + 1}"
             for index, parameter in enumerate(parameters)
@@ -648,9 +814,11 @@ class ControlsPanel(QWidget):
             )
             axis_data = {
                 "raw_parameter": raw_parameter,
+                "column_index": index,
                 "display_parameter": display_parameter,
                 "display_unit": unit,
                 "axis_label": self._format_axis_label(display_parameter, unit),
+                "curve_label": labels[index].strip() if index < len(labels) else "",
             }
             self.x_axis_selector.addItem(display_parameter, axis_data)
             self.y_axis_selector.addItem(display_parameter, axis_data)
@@ -770,18 +938,22 @@ class ControlsPanel(QWidget):
         if not isinstance(x_data, dict):
             return None
 
-        name_row, unit_row = self._current_header_config
+        name_row, unit_row, label_row = self._current_header_config
         return {
             "filepath": str(self._current_file["path"]),
             "filename": str(self._current_file["filename"]),
             "x_param": x_data["raw_parameter"],
             "y_param": y_data["raw_parameter"],
+            "x_column_index": x_data["column_index"],
+            "y_column_index": y_data["column_index"],
             "x_display": x_data["display_parameter"],
             "y_display": y_data["display_parameter"],
             "x_label": x_data["axis_label"],
             "y_label": y_data["axis_label"],
+            "curve_label": y_data["curve_label"],
             "name_row": name_row,
             "unit_row": unit_row,
+            "label_row": label_row,
             "data_start_row": int(self._current_header_info["data_start_row"]),
         }
 
@@ -886,6 +1058,9 @@ class ControlsPanel(QWidget):
 
     def set_plot_style(self, plot_style: PlotStyleState) -> None:
         self._updating_plot_style_controls = True
+        self.plot_title_input.setText(plot_style.plot_title)
+        self.x_axis_title_input.setText(plot_style.x_axis_title)
+        self.y_axis_title_input.setText(plot_style.y_axis_title)
         self.x_auto_checkbox.setChecked(plot_style.x_range.auto)
         self.x_min_spin.setValue(plot_style.x_range.minimum)
         self.x_max_spin.setValue(plot_style.x_range.maximum)
@@ -898,6 +1073,15 @@ class ControlsPanel(QWidget):
             self._grid_color = plot_style.grid.color
             self._set_color_button(self.grid_color_button, self._grid_color)
             self.grid_opacity_slider.setValue(round(plot_style.grid.opacity * 100))
+        if plot_style.legend is not None:
+            self.legend_checkbox.setChecked(plot_style.legend.visible)
+            self._set_combo_to_data(self.legend_location_selector, plot_style.legend.location)
+            self.legend_frame_checkbox.setChecked(plot_style.legend.frame_enabled)
+            self._legend_background_color = plot_style.legend.background_color
+            self._legend_border_color = plot_style.legend.border_color
+            self._set_color_button(self.legend_background_button, self._legend_background_color)
+            self._set_color_button(self.legend_border_button, self._legend_border_color)
+            self.legend_opacity_slider.setValue(round(plot_style.legend.opacity * 100))
         self._handle_range_auto_changed(emit=False)
         self._updating_plot_style_controls = False
 
@@ -913,11 +1097,23 @@ class ControlsPanel(QWidget):
                 minimum=self.y_min_spin.value(),
                 maximum=self.y_max_spin.value(),
             ),
+            plot_title=self.plot_title_input.text().strip(),
+            x_axis_title=self.x_axis_title_input.text().strip(),
+            y_axis_title=self.y_axis_title_input.text().strip(),
             font_size=self.font_size_spin.value(),
             grid=GridStyle(
                 enabled=self.grid_checkbox.isChecked(),
                 color=self._grid_color,
                 opacity=self.grid_opacity_slider.value() / 100.0,
+            ),
+            legend=LegendStyle(
+                visible=self.legend_checkbox.isChecked(),
+                location=self.legend_location_selector.currentData(Qt.ItemDataRole.UserRole)
+                or "best",
+                frame_enabled=self.legend_frame_checkbox.isChecked(),
+                background_color=self._legend_background_color,
+                border_color=self._legend_border_color,
+                opacity=self.legend_opacity_slider.value() / 100.0,
             ),
         )
 
@@ -958,6 +1154,22 @@ class ControlsPanel(QWidget):
             return
         self._grid_color = color.name()
         self._set_color_button(self.grid_color_button, self._grid_color)
+        self._emit_plot_style_changed()
+
+    def _choose_legend_background_color(self) -> None:
+        color = QColorDialog.getColor(QColor(self._legend_background_color), self)
+        if not color.isValid():
+            return
+        self._legend_background_color = color.name()
+        self._set_color_button(self.legend_background_button, self._legend_background_color)
+        self._emit_plot_style_changed()
+
+    def _choose_legend_border_color(self) -> None:
+        color = QColorDialog.getColor(QColor(self._legend_border_color), self)
+        if not color.isValid():
+            return
+        self._legend_border_color = color.name()
+        self._set_color_button(self.legend_border_button, self._legend_border_color)
         self._emit_plot_style_changed()
 
     def _emit_curve_style_changed(self) -> None:

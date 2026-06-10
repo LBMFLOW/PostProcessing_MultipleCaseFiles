@@ -199,12 +199,13 @@ class MainWindow(QMainWindow):
             )
             return
 
-        name_row, unit_row = self.controls_panel.header_config()
+        name_row, unit_row, label_row = self.controls_panel.header_config()
         try:
             header_info = self.backend.parse_file_headers(
                 str(file_info["path"]),
                 name_row=name_row,
                 unit_row=unit_row,
+                label_row=label_row,
             )
         except (FileNotFoundError, ValueError, OSError) as exc:
             self.controls_panel.clear_header_preview()
@@ -228,7 +229,8 @@ class MainWindow(QMainWindow):
 
         added = 0
         for selection in selections:
-            if self._add_curve_from_selection(selection, str(selection["y_display"])):
+            curve_label = str(selection["curve_label"] or selection["y_display"])
+            if self._add_curve_from_selection(selection, curve_label):
                 added += 1
 
         if added:
@@ -257,14 +259,20 @@ class MainWindow(QMainWindow):
                     str(file_info["path"]),
                     name_row=base_selection["name_row"],
                     unit_row=base_selection["unit_row"],
+                    label_row=base_selection["label_row"],
                 )
                 selection = {
                     **base_selection,
                     "filepath": str(file_info["path"]),
                     "filename": str(file_info["filename"]),
                     "data_start_row": int(header_info["data_start_row"]),
+                    "curve_label": self._curve_label_from_header(
+                        header_info,
+                        base_selection["y_column_index"],
+                        str(file_info["filename"]),
+                    ),
                 }
-                if self._add_curve_from_selection(selection, str(file_info["filename"])):
+                if self._add_curve_from_selection(selection, str(selection["curve_label"])):
                     added += 1
             except (FileNotFoundError, ValueError, OSError):
                 failures.append(str(file_info["filename"]))
@@ -311,7 +319,9 @@ class MainWindow(QMainWindow):
             y_param=selection["y_display"],
             name_row=selection["name_row"],
             unit_row=selection["unit_row"],
+            label_row=selection["label_row"],
             data_start_row=selection["data_start_row"],
+            y_column_index=selection["y_column_index"],
             x=list(plot_data["x"]),
             y=list(plot_data["y"]),
             x_label=plot_data["x_label"],
@@ -378,6 +388,19 @@ class MainWindow(QMainWindow):
             curve.style = deepcopy(uniform_style)
         self._refresh_curve_views()
         self.statusBar().showMessage("Uniform style applied to all curves.")
+
+    def _curve_label_from_header(
+        self,
+        header_info: dict,
+        column_index: int,
+        fallback: str,
+    ) -> str:
+        labels = header_info.get("plot_labels", [])
+        if 0 <= column_index < len(labels):
+            label = str(labels[column_index]).strip()
+            if label:
+                return label
+        return fallback
 
     def _curve_by_id(self, curve_id: str | None) -> CurveState | None:
         if curve_id is None:
@@ -469,7 +492,9 @@ class MainWindow(QMainWindow):
             "curve_label": template_curve.label,
             "name_row": template_curve.name_row,
             "unit_row": template_curve.unit_row,
+            "label_row": template_curve.label_row,
             "data_start_row": template_curve.data_start_row,
+            "y_column_index": template_curve.y_column_index,
             "curve_style": template_curve.style.to_dict(),
             "plot_style": plot_style,
             "figure_size_inches": [8.0, 5.0],

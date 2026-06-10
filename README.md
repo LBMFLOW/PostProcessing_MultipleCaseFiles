@@ -119,7 +119,7 @@ This project currently defines:
 - Core 2D plotting for selected x/y parameters using embedded Matplotlib.
 - Multi-curve plotting from multiple selected files or multiple Y variables from one file.
 - A curve list with editable labels and delete controls that drives reactive plot redraws.
-- Axis range, per-curve style, and global plot style controls backed by structured dataclasses.
+- Axis range, plot title, axis title, legend, per-curve style, and global plot style controls backed by structured dataclasses.
 - Batch SVG export that applies one template curve/style to every selected case file.
 - A typed backend API boundary.
 - The planned frontend/backend contract.
@@ -133,6 +133,8 @@ The Plot Configuration panel supports two multi-curve modes:
 - Multiple selected files: choose one X parameter and one Y parameter, check files in the file list, then use `Add curves for all selected files`.
 - Multiple Y variables: choose one highlighted file, choose an X parameter, add one or more Y variables with `+ Add Y variable`, then use `Add curve(s)`.
 
+Use `Select all files` above the file list to check or uncheck large batches at once. Header Configuration can optionally read default curve labels from a user-selected row in each data file.
+
 Plotted curves appear in the Curves panel. Curve labels are editable inline, and the delete button removes a curve from both the list and the plot. The plot redraws from the curve list whenever curves are added, renamed, or removed.
 
 ## Style Controls
@@ -141,7 +143,7 @@ The Style panel includes:
 
 - Manual or automatic X/Y axis ranges.
 - Per-curve color, line style, line weight, marker, marker size, opacity, and label controls for the selected curve.
-- Global font size and grid controls.
+- Plot title, X/Y axis title overrides, legend location/style controls, global font size, and grid controls.
 - Reset all styles and apply-uniform-style actions.
 
 Curve and plot styling state is defined in `src/simpost/ui/plot_models.py` as Python dataclasses so it can be serialized and reapplied by later save/export workflows.
