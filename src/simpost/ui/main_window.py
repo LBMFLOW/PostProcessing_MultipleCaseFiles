@@ -84,6 +84,8 @@ class MainWindow(QMainWindow):
         self.controls_panel.browse_requested.connect(self._browse_directory)
         self.controls_panel.scan_requested.connect(self._scan_directory)
         self.controls_panel.selection_changed.connect(self._update_selection_status)
+        self.controls_panel.file_highlighted.connect(self._parse_highlighted_file_headers)
+        self.controls_panel.header_config_changed.connect(self._parse_selected_file_headers)
 
     def _browse_directory(self) -> None:
         start_directory = self.controls_panel.directory_path() or str(Path.home())
@@ -133,3 +135,39 @@ class MainWindow(QMainWindow):
 
     def _update_selection_status(self, total: int, selected: int) -> None:
         self.statusBar().showMessage(f"{total} files found, {selected} selected")
+
+    def _parse_selected_file_headers(self) -> None:
+        file_info = self.controls_panel.selected_file()
+        if file_info is None:
+            self.controls_panel.clear_header_preview()
+            return
+        self._parse_highlighted_file_headers(file_info)
+
+    def _parse_highlighted_file_headers(self, file_info: dict) -> None:
+        if file_info.get("parse_error"):
+            self.controls_panel.clear_header_preview()
+            self.statusBar().showMessage(
+                f"Cannot preview headers for {file_info['filename']}: {file_info['parse_error']}"
+            )
+            return
+
+        name_row, unit_row = self.controls_panel.header_config()
+        try:
+            header_info = self.backend.parse_file_headers(
+                str(file_info["path"]),
+                name_row=name_row,
+                unit_row=unit_row,
+            )
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            self.controls_panel.clear_header_preview()
+            self.statusBar().showMessage(str(exc))
+            return
+
+        self.controls_panel.set_header_preview(file_info, header_info)
+        warning_count = len(header_info.get("warnings", []))
+        if warning_count:
+            self.statusBar().showMessage(
+                f"Parsed headers for {file_info['filename']} with {warning_count} warnings."
+            )
+        else:
+            self.statusBar().showMessage(f"Parsed headers for {file_info['filename']}.")

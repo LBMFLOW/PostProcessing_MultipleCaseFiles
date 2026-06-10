@@ -134,6 +134,14 @@ class BackendAPI(Protocol):
     def scan_directory(self, directory_path: str, extensions: list[str]) -> list[dict]:
         """Scan a directory for supported simulation result files."""
 
+    def parse_file_headers(
+        self,
+        filepath: str,
+        name_row: int = 0,
+        unit_row: int | None = 1,
+    ) -> dict:
+        """Parse parameter names, units, data start row, and warnings from a file."""
+
     def list_datasets(self) -> list[DatasetSummary]:
         """Return datasets discovered in the current session."""
 

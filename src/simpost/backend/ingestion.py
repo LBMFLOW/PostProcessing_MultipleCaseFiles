@@ -51,6 +51,54 @@ def scan_directory(directory_path: str, extensions: list[str]) -> list[ScanResul
     return results
 
 
+def parse_file_headers(filepath: str, name_row: int = 0, unit_row: int | None = 1) -> dict:
+    """Parse parameter names and units from a comma-separated simulation file.
+
+    Row indexes are zero-based. Set unit_row to None when the file does not
+    contain a dedicated units row.
+    """
+
+    path = Path(filepath).expanduser()
+    if not path.exists():
+        raise FileNotFoundError(f"File does not exist: {path}")
+    if not path.is_file():
+        raise ValueError(f"Path is not a file: {path}")
+    if name_row < 0:
+        raise ValueError("name_row must be zero or greater.")
+    if unit_row is not None and unit_row < 0:
+        raise ValueError("unit_row must be zero or greater when provided.")
+
+    try:
+        rows = _read_csv_rows(path, include_empty_rows=True)
+    except (OSError, UnicodeError, csv.Error) as exc:
+        raise ValueError(f"Could not parse comma-separated data: {exc}") from exc
+
+    if name_row >= len(rows):
+        raise ValueError(f"Parameter name row {name_row + 1} is outside the file.")
+
+    parameters = [cell.strip() for cell in rows[name_row]]
+    units = _read_units_row(rows, unit_row, len(parameters))
+    data_start_row = _data_start_row(name_row, unit_row)
+    warnings = _parameter_warnings(parameters)
+
+    if unit_row is not None and unit_row >= len(rows):
+        warnings.append(
+            {
+                "column": None,
+                "parameter": "",
+                "message": f"Units row {unit_row + 1} is outside the file.",
+            }
+        )
+
+    return {
+        "parameters": parameters,
+        "units": units,
+        "data_start_row": data_start_row,
+        "num_data_rows": _count_data_rows(rows, data_start_row),
+        "warnings": warnings,
+    }
+
+
 def _normalize_extensions(extensions: list[str]) -> tuple[str, ...]:
     normalized: set[str] = set()
     for extension in extensions:
@@ -105,17 +153,58 @@ def _parse_comma_separated_shape(path: Path) -> ScanResult:
     }
 
 
-def _read_csv_rows(path: Path) -> list[list[str]]:
+def _read_units_row(rows: list[list[str]], unit_row: int | None, parameter_count: int) -> list[str]:
+    if unit_row is None or unit_row >= len(rows):
+        return [""] * parameter_count
+
+    units = [cell.strip() for cell in rows[unit_row]]
+    if len(units) < parameter_count:
+        units.extend([""] * (parameter_count - len(units)))
+    return units[:parameter_count]
+
+
+def _data_start_row(name_row: int, unit_row: int | None) -> int:
+    if unit_row is None:
+        return name_row + 1
+    return max(name_row, unit_row) + 1
+
+
+def _count_data_rows(rows: list[list[str]], data_start_row: int) -> int:
+    return sum(1 for row in rows[data_start_row:] if any(cell.strip() for cell in row))
+
+
+def _parameter_warnings(parameters: list[str]) -> list[dict]:
+    warnings: list[dict] = []
+    for index, parameter in enumerate(parameters):
+        if not parameter:
+            warnings.append(
+                {
+                    "column": index,
+                    "parameter": parameter,
+                    "message": "Parameter name is empty.",
+                }
+            )
+        elif _is_number(parameter):
+            warnings.append(
+                {
+                    "column": index,
+                    "parameter": parameter,
+                    "message": "Parameter name is numeric.",
+                }
+            )
+    return warnings
+
+
+def _read_csv_rows(path: Path, include_empty_rows: bool = False) -> list[list[str]]:
     last_error: UnicodeDecodeError | None = None
     for encoding in ("utf-8-sig", "utf-8", "cp1252"):
         try:
             with path.open("r", encoding=encoding, newline="") as file:
                 reader = csv.reader(file)
-                return [
-                    [cell.strip() for cell in row]
-                    for row in reader
-                    if any(cell.strip() for cell in row)
-                ]
+                rows = [[cell.strip() for cell in row] for row in reader]
+                if include_empty_rows:
+                    return rows
+                return [row for row in rows if any(cell.strip() for cell in row)]
         except UnicodeDecodeError as exc:
             last_error = exc
 

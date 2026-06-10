@@ -45,6 +45,26 @@ Response fields:
 - `source_path`: originating file path.
 - `variables`: available variable names.
 
+### `parse_file_headers(filepath: str, name_row: int = 0, unit_row: int | None = 1) -> dict`
+
+Parses parameter names and units from a comma-separated simulation file. Row indexes are zero-based in the backend API. The UI presents them as one-based row numbers.
+
+Arguments:
+
+- `filepath`: file selected in the scan results.
+- `name_row`: zero-based row index containing parameter names.
+- `unit_row`: zero-based row index containing units, or `None` when the file has no units row.
+
+Response fields:
+
+- `parameters`: stripped parameter names, in file order.
+- `units`: stripped units aligned to `parameters`; absent units are returned as empty strings.
+- `data_start_row`: zero-based row index where numeric data begins.
+- `num_data_rows`: count of non-empty data rows after `data_start_row`.
+- `warnings`: warning dictionaries for invalid metadata, such as empty or numeric parameter names.
+
+The frontend stores user-edited parameter and unit overrides in application state only. It must not write those edits back to the source simulation file.
+
 ### `load_dataset(request: LoadDatasetRequest) -> DatasetDetail`
 
 Loads metadata and lightweight preview information for a selected dataset.

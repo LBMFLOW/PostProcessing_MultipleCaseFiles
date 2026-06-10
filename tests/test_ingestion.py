@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from simpost.backend.ingestion import scan_directory
+from simpost.backend.ingestion import parse_file_headers, scan_directory
 
 
 TEST_TMP_ROOT = Path(__file__).resolve().parents[1] / "test_tmp"
@@ -70,6 +70,53 @@ class ScanDirectoryTests(unittest.TestCase):
         self.assertEqual(results[0]["row_count"], 0)
         self.assertEqual(results[0]["column_count"], 0)
         self.assertEqual(results[0]["parse_error"], "File contains no comma-separated rows.")
+
+
+class ParseFileHeadersTests(unittest.TestCase):
+    def test_parses_parameter_names_units_and_data_row_count(self) -> None:
+        with temporary_directory() as directory:
+            path = Path(directory) / "case.dat"
+            path.write_text(
+                " time , pressure , temperature \n s , Pa , K \n0,101325,300\n1,101500,301\n",
+                encoding="utf-8",
+            )
+
+            result = parse_file_headers(str(path))
+
+        self.assertEqual(result["parameters"], ["time", "pressure", "temperature"])
+        self.assertEqual(result["units"], ["s", "Pa", "K"])
+        self.assertEqual(result["data_start_row"], 2)
+        self.assertEqual(result["num_data_rows"], 2)
+        self.assertEqual(result["warnings"], [])
+
+    def test_parses_headers_without_units_row(self) -> None:
+        with temporary_directory() as directory:
+            path = Path(directory) / "case.out"
+            path.write_text("time,pressure\n0,101325\n1,101500\n", encoding="utf-8")
+
+            result = parse_file_headers(str(path), name_row=0, unit_row=None)
+
+        self.assertEqual(result["parameters"], ["time", "pressure"])
+        self.assertEqual(result["units"], ["", ""])
+        self.assertEqual(result["data_start_row"], 1)
+        self.assertEqual(result["num_data_rows"], 2)
+
+    def test_warns_for_empty_and_numeric_parameter_names(self) -> None:
+        with temporary_directory() as directory:
+            path = Path(directory) / "case.res"
+            path.write_text("time,,123\ns,Pa,K\n0,1,2\n", encoding="utf-8")
+
+            result = parse_file_headers(str(path))
+
+        self.assertEqual(result["parameters"], ["time", "", "123"])
+        warnings = {(warning["column"], warning["message"]) for warning in result["warnings"]}
+        self.assertEqual(
+            warnings,
+            {
+                (1, "Parameter name is empty."),
+                (2, "Parameter name is numeric."),
+            },
+        )
 
 
 if __name__ == "__main__":

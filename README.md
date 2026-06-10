@@ -105,10 +105,11 @@ This project currently defines:
 - A main Qt window layout.
 - A directory scan UI with extension filtering and selectable file rows.
 - A backend file ingestion function for recursively scanning comma-separated files with non-standard extensions.
+- Header detection for parameter names and units with editable in-memory overrides.
 - A typed backend API boundary.
 - The planned frontend/backend contract.
 
-Plotting, filtering, session persistence, and SVG export feature logic are not implemented yet.
+Plot rendering, filtering, session persistence, and SVG export feature logic are not implemented yet.
 
 ## Backend API Contract
 

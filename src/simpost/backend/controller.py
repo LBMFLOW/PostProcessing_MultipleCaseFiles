@@ -22,12 +22,20 @@ from simpost.backend.api_contract import (
     SessionResult,
     SessionState,
 )
-from simpost.backend.ingestion import scan_directory
+from simpost.backend.ingestion import parse_file_headers, scan_directory
 
 
 class BackendController(BackendAPI):
     def scan_directory(self, directory_path: str, extensions: list[str]) -> list[dict]:
         return scan_directory(directory_path, extensions)
+
+    def parse_file_headers(
+        self,
+        filepath: str,
+        name_row: int = 0,
+        unit_row: int | None = 1,
+    ) -> dict:
+        return parse_file_headers(filepath, name_row, unit_row)
 
     def list_datasets(self) -> list[DatasetSummary]:
         raise NotImplementedError
