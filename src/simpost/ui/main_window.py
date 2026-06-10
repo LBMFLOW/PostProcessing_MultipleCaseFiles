@@ -83,6 +83,7 @@ class MainWindow(QMainWindow):
     def _connect_signals(self) -> None:
         self.controls_panel.browse_requested.connect(self._browse_directory)
         self.controls_panel.scan_requested.connect(self._scan_directory)
+        self.controls_panel.add_curve_requested.connect(self._add_curve)
         self.controls_panel.selection_changed.connect(self._update_selection_status)
         self.controls_panel.file_highlighted.connect(self._parse_highlighted_file_headers)
         self.controls_panel.header_config_changed.connect(self._parse_selected_file_headers)
@@ -171,3 +172,28 @@ class MainWindow(QMainWindow):
             )
         else:
             self.statusBar().showMessage(f"Parsed headers for {file_info['filename']}.")
+
+    def _add_curve(self) -> None:
+        selection = self.controls_panel.plot_selection()
+        if selection is None:
+            self.statusBar().showMessage("Select a file and plot axes before adding a curve.")
+            return
+
+        try:
+            plot_data = self.backend.get_plot_data(
+                selection["filepath"],
+                selection["x_param"],
+                selection["y_param"],
+                selection["name_row"],
+                selection["unit_row"],
+                selection["data_start_row"],
+            )
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            self.statusBar().showMessage(str(exc))
+            return
+
+        plot_data["x_label"] = selection["x_label"]
+        plot_data["y_label"] = selection["y_label"]
+        curve_label = f"{selection['filename']} — {selection['y_display']}"
+        self.plot_panel.add_curve(plot_data, curve_label)
+        self.statusBar().showMessage(f"Added curve: {curve_label}")

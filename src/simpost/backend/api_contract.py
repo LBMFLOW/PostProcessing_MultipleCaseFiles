@@ -148,8 +148,16 @@ class BackendAPI(Protocol):
     def load_dataset(self, request: LoadDatasetRequest) -> DatasetDetail:
         """Load metadata and preview information for a dataset."""
 
-    def get_plot_data(self, request: PlotDataRequest) -> PlotDataResponse:
-        """Return numeric data ready for plotting."""
+    def get_plot_data(
+        self,
+        filepath: str,
+        x_param: str,
+        y_param: str,
+        name_row: int,
+        unit_row: int | None,
+        data_start_row: int,
+    ) -> dict:
+        """Return numeric x/y arrays and axis labels for plotting."""
 
     def get_plot_defaults(self, dataset_id: str) -> PlotDefaults:
         """Return suggested plot defaults for a dataset."""

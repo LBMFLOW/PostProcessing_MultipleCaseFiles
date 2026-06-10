@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 class ControlsPanel(QWidget):
     browse_requested = pyqtSignal()
     scan_requested = pyqtSignal()
+    add_curve_requested = pyqtSignal()
     selection_changed = pyqtSignal(int, int)
     file_highlighted = pyqtSignal(dict)
     header_config_changed = pyqtSignal()
@@ -39,6 +40,9 @@ class ControlsPanel(QWidget):
         self._files: list[dict] = []
         self._current_file: dict | None = None
         self._current_header_config: tuple[int, int | None] | None = None
+        self._current_header_info: dict | None = None
+        self._current_raw_parameters: list[str] = []
+        self._current_raw_units: list[str] = []
         self._header_overrides: dict[str, dict] = {}
         self._updating_table = False
         self._updating_header = False
@@ -50,7 +54,7 @@ class ControlsPanel(QWidget):
         layout.addWidget(self._build_data_group())
         layout.addWidget(self._build_file_list_group(), stretch=1)
         layout.addWidget(self._build_header_group(), stretch=1)
-        layout.addWidget(self._build_axes_group())
+        layout.addWidget(self._build_plot_group())
         layout.addWidget(self._build_style_group())
 
     def _build_data_group(self) -> QGroupBox:
@@ -116,7 +120,7 @@ class ControlsPanel(QWidget):
         self.name_row_spin = QSpinBox()
         self.name_row_spin.setRange(1, 999_999)
         self.name_row_spin.setValue(1)
-        self.name_row_spin.valueChanged.connect(self.header_config_changed.emit)
+        self.name_row_spin.valueChanged.connect(lambda _value: self.header_config_changed.emit())
 
         self.unit_row_checkbox = QCheckBox("Use units row")
         self.unit_row_checkbox.setChecked(True)
@@ -125,7 +129,7 @@ class ControlsPanel(QWidget):
         self.unit_row_spin = QSpinBox()
         self.unit_row_spin.setRange(1, 999_999)
         self.unit_row_spin.setValue(2)
-        self.unit_row_spin.valueChanged.connect(self.header_config_changed.emit)
+        self.unit_row_spin.valueChanged.connect(lambda _value: self.header_config_changed.emit())
 
         row_form = QFormLayout()
         row_form.addRow("Parameter row", self.name_row_spin)
@@ -149,8 +153,8 @@ class ControlsPanel(QWidget):
         layout.addWidget(self.header_preview_table)
         return group
 
-    def _build_axes_group(self) -> QGroupBox:
-        group = QGroupBox("Axes")
+    def _build_plot_group(self) -> QGroupBox:
+        group = QGroupBox("Plot Configuration")
         form = QFormLayout(group)
 
         self.x_axis_selector = QComboBox()
@@ -161,8 +165,13 @@ class ControlsPanel(QWidget):
         self.y_axis_selector.addItem("Select y variable")
         self.y_axis_selector.setEnabled(False)
 
+        self.add_curve_button = QPushButton("Add curve")
+        self.add_curve_button.setEnabled(False)
+        self.add_curve_button.clicked.connect(self.add_curve_requested.emit)
+
         form.addRow("X", self.x_axis_selector)
         form.addRow("Y", self.y_axis_selector)
+        form.addRow("", self.add_curve_button)
         return group
 
     def _build_style_group(self) -> QGroupBox:
@@ -270,10 +279,13 @@ class ControlsPanel(QWidget):
     def set_header_preview(self, file_info: dict, header_info: dict) -> None:
         self._current_file = file_info
         self._current_header_config = self.header_config()
+        self._current_header_info = header_info
 
         path = str(file_info["path"])
-        parameters = list(header_info["parameters"])
-        units = list(header_info["units"])
+        raw_parameters = list(header_info["parameters"])
+        raw_units = list(header_info["units"])
+        parameters = list(raw_parameters)
+        units = list(raw_units)
         override = self._header_overrides.get(path)
         if (
             override
@@ -282,6 +294,9 @@ class ControlsPanel(QWidget):
         ):
             parameters = list(override["parameters"])
             units = list(override["units"])
+
+        self._current_raw_parameters = raw_parameters
+        self._current_raw_units = raw_units
 
         general_warnings: list[str] = []
         for warning in header_info.get("warnings", []):
@@ -324,14 +339,17 @@ class ControlsPanel(QWidget):
 
         self._updating_header = False
         self._store_current_header_overrides()
-        self._populate_axis_selectors(parameters)
+        self._populate_axis_selectors(parameters, units)
 
     def clear_header_preview(self) -> None:
         self._current_file = None
         self._current_header_config = None
+        self._current_header_info = None
+        self._current_raw_parameters = []
+        self._current_raw_units = []
         self.header_summary_label.setText("Select a file to preview headers")
         self.header_preview_table.setRowCount(0)
-        self._populate_axis_selectors([])
+        self._populate_axis_selectors([], [])
 
     def _emit_highlighted_file(self) -> None:
         if self._updating_table:
@@ -347,7 +365,7 @@ class ControlsPanel(QWidget):
             return
         self._update_summary()
 
-    def _handle_unit_row_enabled_changed(self) -> None:
+    def _handle_unit_row_enabled_changed(self, _state: int) -> None:
         self.unit_row_spin.setEnabled(self.unit_row_checkbox.isChecked())
         self.header_config_changed.emit()
 
@@ -357,7 +375,7 @@ class ControlsPanel(QWidget):
         if item.column() == 1:
             self._refresh_parameter_warning(item.row())
         self._store_current_header_overrides()
-        self._populate_axis_selectors(self._current_parameters())
+        self._populate_axis_selectors(self._current_parameters(), self._current_units())
 
     def _store_current_header_overrides(self) -> None:
         if self._current_file is None or self._current_header_config is None:
@@ -383,7 +401,33 @@ class ControlsPanel(QWidget):
             units.append(item.text().strip() if item is not None else "")
         return units
 
-    def _populate_axis_selectors(self, parameters: list[str]) -> None:
+    def plot_selection(self) -> dict | None:
+        if self._current_file is None or self._current_header_config is None:
+            return None
+        if self._current_header_info is None:
+            return None
+
+        x_data = self.x_axis_selector.currentData(Qt.ItemDataRole.UserRole)
+        y_data = self.y_axis_selector.currentData(Qt.ItemDataRole.UserRole)
+        if not isinstance(x_data, dict) or not isinstance(y_data, dict):
+            return None
+
+        name_row, unit_row = self._current_header_config
+        return {
+            "filepath": str(self._current_file["path"]),
+            "filename": str(self._current_file["filename"]),
+            "x_param": x_data["raw_parameter"],
+            "y_param": y_data["raw_parameter"],
+            "x_display": x_data["display_parameter"],
+            "y_display": y_data["display_parameter"],
+            "x_label": x_data["axis_label"],
+            "y_label": y_data["axis_label"],
+            "name_row": name_row,
+            "unit_row": unit_row,
+            "data_start_row": int(self._current_header_info["data_start_row"]),
+        }
+
+    def _populate_axis_selectors(self, parameters: list[str], units: list[str]) -> None:
         display_parameters = [
             parameter if parameter else f"Column {index + 1}"
             for index, parameter in enumerate(parameters)
@@ -396,12 +440,28 @@ class ControlsPanel(QWidget):
             self.y_axis_selector.addItem("Select y variable")
             self.x_axis_selector.setEnabled(False)
             self.y_axis_selector.setEnabled(False)
+            self.add_curve_button.setEnabled(False)
             return
 
-        self.x_axis_selector.addItems(display_parameters)
-        self.y_axis_selector.addItems(display_parameters)
+        for index, display_parameter in enumerate(display_parameters):
+            unit = units[index].strip() if index < len(units) else ""
+            raw_parameter = (
+                self._current_raw_parameters[index]
+                if index < len(self._current_raw_parameters)
+                else display_parameter
+            )
+            axis_data = {
+                "raw_parameter": raw_parameter,
+                "display_parameter": display_parameter,
+                "display_unit": unit,
+                "axis_label": self._format_axis_label(display_parameter, unit),
+            }
+            self.x_axis_selector.addItem(display_parameter, axis_data)
+            self.y_axis_selector.addItem(display_parameter, axis_data)
+
         self.x_axis_selector.setEnabled(True)
         self.y_axis_selector.setEnabled(True)
+        self.add_curve_button.setEnabled(True)
 
     def _refresh_parameter_warning(self, row: int) -> None:
         parameter_item = self.header_preview_table.item(row, 1)
@@ -430,6 +490,11 @@ class ControlsPanel(QWidget):
         except ValueError:
             return ""
         return "Parameter name is numeric."
+
+    def _format_axis_label(self, parameter: str, unit: str) -> str:
+        parameter = parameter.strip()
+        unit = unit.strip()
+        return f"{parameter} ({unit})" if unit else parameter
 
     def _update_summary(self) -> None:
         total = len(self._files)

@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from simpost.backend.ingestion import parse_file_headers, scan_directory
+from simpost.backend.ingestion import get_plot_data, parse_file_headers, scan_directory
 
 
 TEST_TMP_ROOT = Path(__file__).resolve().parents[1] / "test_tmp"
@@ -117,6 +117,62 @@ class ParseFileHeadersTests(unittest.TestCase):
                 (2, "Parameter name is numeric."),
             },
         )
+
+
+class GetPlotDataTests(unittest.TestCase):
+    def test_returns_numeric_series_and_axis_labels(self) -> None:
+        with temporary_directory() as directory:
+            path = Path(directory) / "case.dat"
+            path.write_text(
+                "time,pressure,temperature\ns,Pa,K\n0,101325,300\n1,101500,301\n",
+                encoding="utf-8",
+            )
+
+            result = get_plot_data(
+                str(path),
+                x_param="time",
+                y_param="pressure",
+                name_row=0,
+                unit_row=1,
+                data_start_row=2,
+            )
+
+        self.assertEqual(result["x"], [0.0, 1.0])
+        self.assertEqual(result["y"], [101325.0, 101500.0])
+        self.assertEqual(result["x_label"], "time (s)")
+        self.assertEqual(result["y_label"], "pressure (Pa)")
+
+    def test_returns_axis_labels_without_units(self) -> None:
+        with temporary_directory() as directory:
+            path = Path(directory) / "case.out"
+            path.write_text("time,pressure\n0,101325\n1,101500\n", encoding="utf-8")
+
+            result = get_plot_data(
+                str(path),
+                x_param="time",
+                y_param="pressure",
+                name_row=0,
+                unit_row=None,
+                data_start_row=1,
+            )
+
+        self.assertEqual(result["x_label"], "time")
+        self.assertEqual(result["y_label"], "pressure")
+
+    def test_rejects_non_numeric_data_values(self) -> None:
+        with temporary_directory() as directory:
+            path = Path(directory) / "case.res"
+            path.write_text("time,pressure\ns,Pa\n0,abc\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "non-numeric value"):
+                get_plot_data(
+                    str(path),
+                    x_param="time",
+                    y_param="pressure",
+                    name_row=0,
+                    unit_row=1,
+                    data_start_row=2,
+                )
 
 
 if __name__ == "__main__":

@@ -99,6 +99,58 @@ def parse_file_headers(filepath: str, name_row: int = 0, unit_row: int | None = 
     }
 
 
+def get_plot_data(
+    filepath: str,
+    x_param: str,
+    y_param: str,
+    name_row: int,
+    unit_row: int | None,
+    data_start_row: int,
+) -> dict:
+    """Return numeric x/y data and axis labels for two file parameters."""
+
+    path = Path(filepath).expanduser()
+    if not path.exists():
+        raise FileNotFoundError(f"File does not exist: {path}")
+    if not path.is_file():
+        raise ValueError(f"Path is not a file: {path}")
+    if name_row < 0:
+        raise ValueError("name_row must be zero or greater.")
+    if unit_row is not None and unit_row < 0:
+        raise ValueError("unit_row must be zero or greater when provided.")
+    if data_start_row < 0:
+        raise ValueError("data_start_row must be zero or greater.")
+
+    try:
+        rows = _read_csv_rows(path, include_empty_rows=True)
+    except (OSError, UnicodeError, csv.Error) as exc:
+        raise ValueError(f"Could not parse comma-separated data: {exc}") from exc
+
+    if name_row >= len(rows):
+        raise ValueError(f"Parameter name row {name_row + 1} is outside the file.")
+
+    parameters = [cell.strip() for cell in rows[name_row]]
+    units = _read_units_row(rows, unit_row, len(parameters))
+    x_index = _parameter_index(parameters, x_param)
+    y_index = _parameter_index(parameters, y_param)
+
+    x_values: list[float] = []
+    y_values: list[float] = []
+    for row_number, row in enumerate(rows[data_start_row:], start=data_start_row + 1):
+        if not any(cell.strip() for cell in row):
+            continue
+
+        x_values.append(_numeric_cell(row, x_index, row_number, x_param))
+        y_values.append(_numeric_cell(row, y_index, row_number, y_param))
+
+    return {
+        "x": x_values,
+        "y": y_values,
+        "x_label": _format_axis_label(parameters[x_index], units[x_index]),
+        "y_label": _format_axis_label(parameters[y_index], units[y_index]),
+    }
+
+
 def _normalize_extensions(extensions: list[str]) -> tuple[str, ...]:
     normalized: set[str] = set()
     for extension in extensions:
@@ -193,6 +245,33 @@ def _parameter_warnings(parameters: list[str]) -> list[dict]:
                 }
             )
     return warnings
+
+
+def _parameter_index(parameters: list[str], parameter: str) -> int:
+    target = parameter.strip()
+    for index, candidate in enumerate(parameters):
+        if candidate.strip() == target:
+            return index
+    raise ValueError(f"Parameter not found in file header: {parameter}")
+
+
+def _numeric_cell(row: list[str], column_index: int, row_number: int, parameter: str) -> float:
+    if column_index >= len(row):
+        raise ValueError(f"Row {row_number} does not contain parameter {parameter}.")
+
+    value = row[column_index].strip()
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise ValueError(
+            f"Row {row_number} has non-numeric value for {parameter}: {value!r}"
+        ) from exc
+
+
+def _format_axis_label(parameter: str, unit: str) -> str:
+    parameter = parameter.strip()
+    unit = unit.strip()
+    return f"{parameter} ({unit})" if unit else parameter
 
 
 def _read_csv_rows(path: Path, include_empty_rows: bool = False) -> list[list[str]]:

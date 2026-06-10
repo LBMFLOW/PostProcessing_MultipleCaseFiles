@@ -106,10 +106,11 @@ This project currently defines:
 - A directory scan UI with extension filtering and selectable file rows.
 - A backend file ingestion function for recursively scanning comma-separated files with non-standard extensions.
 - Header detection for parameter names and units with editable in-memory overrides.
+- Core 2D plotting for selected x/y parameters using embedded Matplotlib.
 - A typed backend API boundary.
 - The planned frontend/backend contract.
 
-Plot rendering, filtering, session persistence, and SVG export feature logic are not implemented yet.
+Filtering, session persistence, and explicit SVG export workflow logic are not implemented yet. Matplotlib's built-in toolbar supports saving figures, including SVG output.
 
 ## Backend API Contract
 

@@ -22,7 +22,11 @@ from simpost.backend.api_contract import (
     SessionResult,
     SessionState,
 )
-from simpost.backend.ingestion import parse_file_headers, scan_directory
+from simpost.backend.ingestion import (
+    get_plot_data as load_plot_data,
+    parse_file_headers,
+    scan_directory,
+)
 
 
 class BackendController(BackendAPI):
@@ -43,8 +47,16 @@ class BackendController(BackendAPI):
     def load_dataset(self, request: LoadDatasetRequest) -> DatasetDetail:
         raise NotImplementedError
 
-    def get_plot_data(self, request: PlotDataRequest) -> PlotDataResponse:
-        raise NotImplementedError
+    def get_plot_data(
+        self,
+        filepath: str,
+        x_param: str,
+        y_param: str,
+        name_row: int,
+        unit_row: int | None,
+        data_start_row: int,
+    ) -> dict:
+        return load_plot_data(filepath, x_param, y_param, name_row, unit_row, data_start_row)
 
     def get_plot_defaults(self, dataset_id: str) -> PlotDefaults:
         raise NotImplementedError

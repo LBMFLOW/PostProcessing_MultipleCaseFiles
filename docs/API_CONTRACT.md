@@ -81,22 +81,27 @@ Response fields:
 - `axes`: available x-axis candidates.
 - `series`: available y-series candidates.
 
-### `get_plot_data(request: PlotDataRequest) -> PlotDataResponse`
+### `get_plot_data(filepath: str, x_param: str, y_param: str, name_row: int, unit_row: int | None, data_start_row: int) -> dict`
 
-Returns numeric series ready for plotting.
+Returns numeric x/y arrays and display labels for one curve.
 
-Request fields:
+Arguments:
 
-- `dataset_id`: source dataset.
-- `x_variable`: x-axis variable.
-- `y_variables`: one or more y-axis variables.
-- `filters`: variable filters chosen in the UI.
+- `filepath`: selected simulation file.
+- `x_param`: parameter name to use as the x-axis source column.
+- `y_param`: parameter name to use as the y-axis source column.
+- `name_row`: zero-based row index containing parameter names.
+- `unit_row`: zero-based row index containing units, or `None` when no units row is used.
+- `data_start_row`: zero-based row index where numeric data begins.
 
 Response fields:
 
-- `x`: x-axis values.
-- `series`: one or more named y-series.
-- `units`: optional display units.
+- `x`: numeric x-axis values.
+- `y`: numeric y-axis values.
+- `x_label`: formatted x-axis label such as `Time (s)`.
+- `y_label`: formatted y-axis label such as `Pressure (Pa)`.
+
+The frontend may override the displayed labels with user-edited parameter and unit names held in app state. The source file is not modified.
 
 ### `get_plot_defaults(dataset_id: str) -> PlotDefaults`
 
