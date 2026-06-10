@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import bisect
+import math
 import textwrap
 
 import matplotlib.patheffects as path_effects
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
-from PyQt6.QtCore import pyqtSignal
+from matplotlib.transforms import blended_transform_factory
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from simpost.ui.plot_models import CurveState, LegendStyle, PlotStyleState
@@ -73,15 +77,53 @@ class PlotPanel(QWidget):
         self._curve_visibility: dict[str, bool] = {}
         self._last_legend_style: LegendStyle | None = None
         self._last_font_size = 10
+        self._selected_curve_id: str | None = None
+        self._trace_enabled = False
+        self._trace_dragging = False
+        self._trace_x_value: float | None = None
+        self._trace_artists: dict[str, object] = {}
+        self._trace_action = self._add_trace_action()
         self._set_empty_state()
         self.canvas.mpl_connect("pick_event", self._handle_pick)
+        self.canvas.mpl_connect("button_press_event", self._handle_trace_press)
+        self.canvas.mpl_connect("motion_notify_event", self._handle_trace_motion)
+        self.canvas.mpl_connect("button_release_event", self._handle_trace_release)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.toolbar)
         layout.addWidget(self.canvas)
 
+    def _add_trace_action(self):
+        self.toolbar.addSeparator()
+        action = self.toolbar.addAction(
+            self._trace_icon(),
+            "Trace selected curve",
+            self._handle_trace_action_toggled,
+        )
+        action.setCheckable(True)
+        action.setToolTip("Trace selected curve values")
+        return action
+
+    def _trace_icon(self) -> QIcon:
+        pixmap = QPixmap(24, 24)
+        pixmap.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(QColor("#3b5fd8"), 1.6))
+        painter.drawLine(12, 4, 12, 20)
+        painter.drawLine(4, 12, 20, 12)
+        painter.setBrush(QColor("#fff36a"))
+        painter.setPen(QPen(QColor("#a89a00"), 1.0))
+        painter.drawRoundedRect(3, 15, 10, 6, 1, 1)
+        painter.drawRoundedRect(13, 3, 8, 6, 1, 1)
+        painter.end()
+
+        return QIcon(pixmap)
+
     def _set_empty_state(self) -> None:
+        self._clear_trace_overlay(draw=False)
         self.axes.set_title("No dataset loaded")
         self.axes.set_xlabel("X")
         self.axes.set_ylabel("Y")
@@ -97,10 +139,12 @@ class PlotPanel(QWidget):
         plot_style: PlotStyleState,
         selected_curve_id: str | None = None,
     ) -> None:
+        self._clear_trace_overlay(draw=False)
         self.axes.clear()
         self._lines = []
         self._legend_artist_to_line.clear()
         self._line_to_curve_id.clear()
+        self._selected_curve_id = selected_curve_id
 
         if not curves:
             self._set_empty_state()
@@ -168,6 +212,7 @@ class PlotPanel(QWidget):
         self._last_legend_style = plot_style.legend
         self._last_font_size = plot_style.font_size
         self._refresh_legend(plot_style.legend, plot_style.font_size)
+        self._refresh_trace_overlay()
         self.canvas.draw_idle()
 
     def _apply_axis_ranges(self, plot_style: PlotStyleState) -> None:
@@ -296,4 +341,245 @@ class PlotPanel(QWidget):
         if curve_id is not None:
             self._curve_visibility[curve_id] = line.get_visible()
         self._refresh_legend(self._last_legend_style, self._last_font_size)
+        self._refresh_trace_overlay()
         self.canvas.draw_idle()
+
+    def _handle_trace_action_toggled(self, checked: bool) -> None:
+        self._trace_enabled = checked
+        self._trace_dragging = False
+        if checked:
+            self._refresh_trace_overlay()
+        else:
+            self._clear_trace_overlay()
+
+    def _handle_trace_press(self, event: object) -> None:
+        if not self._can_handle_trace_mouse_event(event):
+            return
+        if getattr(event, "button", None) not in (1, None):
+            return
+        self._trace_dragging = True
+        self._update_trace_overlay(float(getattr(event, "xdata")))
+
+    def _handle_trace_motion(self, event: object) -> None:
+        if not self._trace_dragging or not self._can_handle_trace_mouse_event(event):
+            return
+        self._update_trace_overlay(float(getattr(event, "xdata")))
+
+    def _handle_trace_release(self, event: object) -> None:
+        if self._trace_dragging and self._can_handle_trace_mouse_event(event):
+            self._update_trace_overlay(float(getattr(event, "xdata")))
+        self._trace_dragging = False
+
+    def _can_handle_trace_mouse_event(self, event: object) -> bool:
+        if not self._trace_enabled:
+            return False
+        if getattr(event, "inaxes", None) is not self.axes:
+            return False
+        if getattr(event, "xdata", None) is None:
+            return False
+        if self._toolbar_mode_active():
+            return False
+        return self._trace_curve_line() is not None
+
+    def _toolbar_mode_active(self) -> bool:
+        mode = getattr(self.toolbar, "mode", "")
+        return bool(str(mode))
+
+    def _refresh_trace_overlay(self) -> None:
+        if not self._trace_enabled:
+            return
+
+        line = self._trace_curve_line()
+        if line is None:
+            self._clear_trace_overlay()
+            return
+
+        x_values = self._clean_trace_points(line)[0]
+        if not x_values:
+            self._clear_trace_overlay()
+            return
+
+        if self._trace_x_value is None:
+            x_min, x_max = self.axes.get_xlim()
+            self._trace_x_value = min(max((x_min + x_max) / 2.0, x_values[0]), x_values[-1])
+
+        self._update_trace_overlay(self._trace_x_value)
+
+    def _trace_curve_line(self) -> Line2D | None:
+        if self._selected_curve_id is not None:
+            for line in self._lines:
+                if self._line_to_curve_id.get(line) == self._selected_curve_id and line.get_visible():
+                    return line
+
+        for line in self._lines:
+            if line.get_visible():
+                return line
+        return None
+
+    def _update_trace_overlay(self, x_value: float) -> None:
+        line = self._trace_curve_line()
+        if line is None:
+            self._clear_trace_overlay()
+            return
+
+        x_values, y_values = self._clean_trace_points(line)
+        if not x_values:
+            self._clear_trace_overlay()
+            return
+
+        x_value = min(max(x_value, x_values[0]), x_values[-1])
+        y_value = self._interpolate_y_value(x_values, y_values, x_value)
+        self._trace_x_value = x_value
+
+        if not self._trace_artists:
+            self._create_trace_artists(line, x_value, y_value)
+        else:
+            self._set_trace_artist_values(x_value, y_value)
+
+        self.canvas.draw_idle()
+
+    def _create_trace_artists(self, line: Line2D, x_value: float, y_value: float) -> None:
+        guide_color = "#666666"
+        label_box = {
+            "boxstyle": "square,pad=0.18",
+            "facecolor": "#fff36a",
+            "edgecolor": "#b7aa00",
+            "linewidth": 0.8,
+        }
+
+        vline = self.axes.axvline(
+            x_value,
+            color=guide_color,
+            linestyle=(0, (4, 3)),
+            linewidth=0.8,
+            zorder=40,
+        )
+        hline = self.axes.axhline(
+            y_value,
+            color=guide_color,
+            linestyle=(0, (4, 3)),
+            linewidth=0.8,
+            zorder=40,
+        )
+        (marker,) = self.axes.plot(
+            [x_value],
+            [y_value],
+            marker="o",
+            markersize=4.5,
+            color="#fff36a",
+            markeredgecolor=line.get_color(),
+            markeredgewidth=1.0,
+            linestyle="none",
+            zorder=45,
+        )
+
+        x_label = self.axes.text(
+            x_value,
+            -0.045,
+            self._format_trace_value(x_value),
+            transform=blended_transform_factory(self.axes.transData, self.axes.transAxes),
+            ha="center",
+            va="top",
+            fontsize=8,
+            color="#111111",
+            bbox=label_box,
+            clip_on=False,
+            zorder=46,
+        )
+        y_label = self.axes.text(
+            -0.025,
+            y_value,
+            self._format_trace_value(y_value),
+            transform=blended_transform_factory(self.axes.transAxes, self.axes.transData),
+            ha="right",
+            va="center",
+            fontsize=8,
+            color="#111111",
+            bbox=label_box,
+            clip_on=False,
+            zorder=46,
+        )
+
+        self._trace_artists = {
+            "vline": vline,
+            "hline": hline,
+            "marker": marker,
+            "x_label": x_label,
+            "y_label": y_label,
+        }
+
+    def _set_trace_artist_values(self, x_value: float, y_value: float) -> None:
+        vline = self._trace_artists["vline"]
+        hline = self._trace_artists["hline"]
+        marker = self._trace_artists["marker"]
+        x_label = self._trace_artists["x_label"]
+        y_label = self._trace_artists["y_label"]
+
+        vline.set_xdata([x_value, x_value])
+        hline.set_ydata([y_value, y_value])
+        marker.set_data([x_value], [y_value])
+        x_label.set_position((x_value, -0.045))
+        x_label.set_text(self._format_trace_value(x_value))
+        y_label.set_position((-0.025, y_value))
+        y_label.set_text(self._format_trace_value(y_value))
+
+    def _clear_trace_overlay(self, draw: bool = True) -> None:
+        for artist in self._trace_artists.values():
+            try:
+                artist.remove()
+            except (NotImplementedError, ValueError):
+                pass
+        self._trace_artists.clear()
+        if draw:
+            self.canvas.draw_idle()
+
+    def _clean_trace_points(self, line: Line2D) -> tuple[list[float], list[float]]:
+        points: list[tuple[float, float]] = []
+        for raw_x, raw_y in zip(line.get_xdata(), line.get_ydata()):
+            try:
+                x_value = float(raw_x)
+                y_value = float(raw_y)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(x_value) and math.isfinite(y_value):
+                points.append((x_value, y_value))
+
+        if not points:
+            return [], []
+
+        points.sort(key=lambda point: point[0])
+        return [point[0] for point in points], [point[1] for point in points]
+
+    def _interpolate_y_value(
+        self,
+        x_values: list[float],
+        y_values: list[float],
+        x_value: float,
+    ) -> float:
+        if x_value <= x_values[0]:
+            return y_values[0]
+        if x_value >= x_values[-1]:
+            return y_values[-1]
+
+        right_index = bisect.bisect_left(x_values, x_value)
+        left_index = max(0, right_index - 1)
+        x_left = x_values[left_index]
+        x_right = x_values[right_index]
+        y_left = y_values[left_index]
+        y_right = y_values[right_index]
+        if x_right == x_left:
+            return y_left
+        fraction = (x_value - x_left) / (x_right - x_left)
+        return y_left + fraction * (y_right - y_left)
+
+    def _format_trace_value(self, value: float) -> str:
+        magnitude = abs(value)
+        if magnitude >= 1000:
+            text = f"{value:.1f}"
+        elif magnitude >= 10:
+            text = f"{value:.2f}"
+        elif magnitude >= 1:
+            text = f"{value:.3f}"
+        else:
+            text = f"{value:.4g}"
+        return text.rstrip("0").rstrip(".") if "." in text else text
