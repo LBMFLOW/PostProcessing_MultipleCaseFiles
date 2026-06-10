@@ -140,6 +140,8 @@ The app remembers the last directory, extension text, parameter row, units row s
 
 Curve labels are built from the curve label formula. The formula can use `curve_label`, `parameter`, and `file_name`. The default formula is `('curve_label'-{'|','.trn'}+"_"+'parameter')`, which removes `|` and `.trn` from the label-row value, adds `_`, then adds the selected parameter name. Use a formula such as `('file_name'-{'.trn'}+"_"+'parameter')` to build labels from the case data filename instead.
 
+Changing the curve label formula also reapplies it to currently plotted curves and refreshes the legend, using each curve's stored source file and parameter metadata.
+
 For GT-style files with a first-line case header followed by parameter names and units, use Parameter row `2`, units row `3`, and curve label row `1`.
 
 Plotted curves appear in the Curves panel. Curve labels are editable inline, and the delete button removes a curve from both the list and the plot. The plot redraws from the curve list whenever curves are added, renamed, or removed.

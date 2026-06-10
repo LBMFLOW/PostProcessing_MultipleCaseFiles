@@ -54,6 +54,7 @@ class ControlsPanel(QWidget):
     selection_changed = pyqtSignal(int, int)
     file_highlighted = pyqtSignal(dict)
     header_config_changed = pyqtSignal()
+    curve_label_formula_changed = pyqtSignal(str)
     settings_changed = pyqtSignal()
 
     def __init__(self) -> None:
@@ -791,6 +792,7 @@ class ControlsPanel(QWidget):
 
     def _handle_label_formula_changed(self, _text: str) -> None:
         self.settings_changed.emit()
+        self.curve_label_formula_changed.emit(self.curve_label_formula_input.text().strip())
         if self._current_header_info is None:
             return
         self._populate_axis_selectors(

@@ -154,6 +154,7 @@ class MainWindow(QMainWindow):
         self.controls_panel.selection_changed.connect(self._update_selection_status)
         self.controls_panel.file_highlighted.connect(self._parse_highlighted_file_headers)
         self.controls_panel.header_config_changed.connect(self._parse_selected_file_headers)
+        self.controls_panel.curve_label_formula_changed.connect(self._relabel_curves_from_formula)
         self.controls_panel.settings_changed.connect(self._save_last_settings)
         self.plot_panel.curve_selected.connect(self._select_curve)
 
@@ -477,6 +478,48 @@ class MainWindow(QMainWindow):
                 curve.label = label or curve.label
                 break
         self._refresh_curve_views()
+
+    def _relabel_curves_from_formula(self, formula: str) -> None:
+        if self._restoring_settings or not self._curves:
+            return
+
+        formula = formula.strip()
+        changed = 0
+        header_cache: dict[tuple[str, int, int | None, int | None], dict] = {}
+        needs_label_row = "curve_label" in formula
+
+        for curve in self._curves:
+            header_info = {"plot_labels": []}
+            if needs_label_row:
+                cache_key = (curve.source_path, curve.name_row, curve.unit_row, curve.label_row)
+                if cache_key not in header_cache:
+                    try:
+                        header_cache[cache_key] = self.backend.parse_file_headers(
+                            curve.source_path,
+                            name_row=curve.name_row,
+                            unit_row=curve.unit_row,
+                            label_row=curve.label_row,
+                        )
+                    except (FileNotFoundError, ValueError, OSError):
+                        header_cache[cache_key] = header_info
+                header_info = header_cache[cache_key]
+
+            new_label = self._curve_label_from_header(
+                header_info,
+                curve.y_column_index,
+                curve.y_param,
+                curve.label,
+                formula,
+                curve.source_file,
+            )
+            curve.curve_label_formula = formula
+            if new_label != curve.label:
+                curve.label = new_label
+                changed += 1
+
+        self._refresh_curve_views()
+        if changed:
+            self.statusBar().showMessage(f"Updated {changed} curve label(s) from formula.")
 
     def _delete_curve(self, curve_id: str) -> None:
         self._curves = [curve for curve in self._curves if curve.id != curve_id]
