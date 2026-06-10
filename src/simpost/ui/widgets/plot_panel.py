@@ -7,6 +7,24 @@ from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
+from simpost.ui.plot_models import CurveState, PlotStyleState
+
+
+LINE_STYLE_MAP = {
+    "solid": "-",
+    "dashed": "--",
+    "dotted": ":",
+    "dashdot": "-.",
+}
+
+MARKER_STYLE_MAP = {
+    "none": None,
+    "circle": "o",
+    "square": "s",
+    "triangle": "^",
+    "cross": "x",
+}
+
 
 class PlotPanel(QWidget):
     def __init__(self) -> None:
@@ -35,7 +53,7 @@ class PlotPanel(QWidget):
         self.axes.grid(True, alpha=0.3)
         self.canvas.draw_idle()
 
-    def render_curves(self, curves: list[dict]) -> None:
+    def render_curves(self, curves: list[CurveState], plot_style: PlotStyleState) -> None:
         self.axes.clear()
         self._lines = []
         self._legend_artist_to_line.clear()
@@ -45,26 +63,37 @@ class PlotPanel(QWidget):
             self._set_empty_state()
             return
 
-        active_ids = {str(curve["id"]) for curve in curves}
+        active_ids = {curve.id for curve in curves}
         self._curve_visibility = {
             curve_id: visible
             for curve_id, visible in self._curve_visibility.items()
             if curve_id in active_ids
         }
 
-        self.axes.grid(True, alpha=0.3)
+        grid = plot_style.grid
+        if grid is not None:
+            if grid.enabled:
+                self.axes.grid(True, color=grid.color, alpha=grid.opacity)
+            else:
+                self.axes.grid(False)
         first_curve = curves[0]
-        self.axes.set_xlabel(str(first_curve["x_label"]))
-        self.axes.set_ylabel(str(first_curve["y_label"]))
+        self.axes.set_xlabel(first_curve.x_label, fontsize=plot_style.font_size)
+        self.axes.set_ylabel(first_curve.y_label, fontsize=plot_style.font_size)
+        self.axes.tick_params(axis="both", labelsize=plot_style.font_size)
 
         for curve in curves:
-            curve_id = str(curve["id"])
+            curve_id = curve.id
             visible = self._curve_visibility.get(curve_id, True)
             (line,) = self.axes.plot(
-                curve["x"],
-                curve["y"],
-                label=str(curve["label"]),
-                color=curve.get("color"),
+                curve.x,
+                curve.y,
+                label=curve.label,
+                color=curve.style.color,
+                linestyle=LINE_STYLE_MAP.get(curve.style.line_style, "-"),
+                linewidth=curve.style.line_weight,
+                marker=MARKER_STYLE_MAP.get(curve.style.marker_style),
+                markersize=curve.style.marker_size,
+                alpha=curve.style.opacity,
                 visible=visible,
             )
             self._lines.append(line)
@@ -73,8 +102,15 @@ class PlotPanel(QWidget):
 
         self.axes.relim()
         self.axes.autoscale_view()
+        self._apply_axis_ranges(plot_style)
         self._refresh_legend()
         self.canvas.draw_idle()
+
+    def _apply_axis_ranges(self, plot_style: PlotStyleState) -> None:
+        if not plot_style.x_range.auto and plot_style.x_range.minimum < plot_style.x_range.maximum:
+            self.axes.set_xlim(plot_style.x_range.minimum, plot_style.x_range.maximum)
+        if not plot_style.y_range.auto and plot_style.y_range.minimum < plot_style.y_range.maximum:
+            self.axes.set_ylim(plot_style.y_range.minimum, plot_style.y_range.maximum)
 
     def _refresh_legend(self) -> None:
         self._legend_artist_to_line.clear()

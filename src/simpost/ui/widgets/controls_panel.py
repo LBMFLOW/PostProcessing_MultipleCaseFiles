@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QColor, QIcon
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QColorDialog,
     QComboBox,
+    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHeaderView,
@@ -24,14 +26,21 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from simpost.ui.plot_models import AxisRangeState, CurveState, CurveStyle, GridStyle, PlotStyleState
+
 
 class ControlsPanel(QWidget):
     browse_requested = pyqtSignal()
     scan_requested = pyqtSignal()
     add_curve_requested = pyqtSignal()
     add_selected_files_curves_requested = pyqtSignal()
+    apply_uniform_style_requested = pyqtSignal()
+    curve_selected = pyqtSignal(str)
     curve_label_changed = pyqtSignal(str, str)
     curve_delete_requested = pyqtSignal(str)
+    curve_style_changed = pyqtSignal(str, object)
+    plot_style_changed = pyqtSignal(object)
+    reset_all_styles_requested = pyqtSignal()
     selection_changed = pyqtSignal(int, int)
     file_highlighted = pyqtSignal(dict)
     header_config_changed = pyqtSignal()
@@ -50,6 +59,9 @@ class ControlsPanel(QWidget):
         self._updating_table = False
         self._updating_header = False
         self._updating_curve_table = False
+        self._updating_style_controls = False
+        self._updating_plot_style_controls = False
+        self._selected_curve_id: str | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -211,7 +223,9 @@ class ControlsPanel(QWidget):
         self.curve_table.verticalHeader().setVisible(False)
         self.curve_table.setAlternatingRowColors(True)
         self.curve_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.curve_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.curve_table.itemChanged.connect(self._handle_curve_label_changed)
+        self.curve_table.itemSelectionChanged.connect(self._handle_curve_selection_changed)
 
         header = self.curve_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -225,23 +239,147 @@ class ControlsPanel(QWidget):
 
     def _build_style_group(self) -> QGroupBox:
         group = QGroupBox("Style")
+        layout = QVBoxLayout(group)
+
+        layout.addWidget(self._build_axis_range_group())
+        layout.addWidget(self._build_curve_style_group())
+        layout.addWidget(self._build_global_style_group())
+        return group
+
+    def _build_axis_range_group(self) -> QGroupBox:
+        group = QGroupBox("Axis Ranges")
         form = QFormLayout(group)
 
-        self.color_button = QPushButton("Color")
-        self.color_button.setEnabled(False)
+        self.x_auto_checkbox = QCheckBox("Auto")
+        self.x_auto_checkbox.setChecked(True)
+        self.x_auto_checkbox.stateChanged.connect(lambda _state: self._handle_range_auto_changed())
 
-        self.line_style_selector = QComboBox()
-        self.line_style_selector.addItems(["Solid", "Dashed", "Dotted", "Dash-dot"])
-        self.line_style_selector.setEnabled(False)
+        self.x_min_spin = self._range_spin_box()
+        self.x_max_spin = self._range_spin_box(default=1.0)
+        self.x_min_spin.valueChanged.connect(lambda _value: self._emit_plot_style_changed())
+        self.x_max_spin.valueChanged.connect(lambda _value: self._emit_plot_style_changed())
 
-        self.line_width_slider = QSlider(Qt.Orientation.Horizontal)
-        self.line_width_slider.setRange(1, 80)
-        self.line_width_slider.setValue(15)
-        self.line_width_slider.setEnabled(False)
+        self.y_auto_checkbox = QCheckBox("Auto")
+        self.y_auto_checkbox.setChecked(True)
+        self.y_auto_checkbox.stateChanged.connect(lambda _state: self._handle_range_auto_changed())
 
-        form.addRow("Line color", self.color_button)
-        form.addRow("Line style", self.line_style_selector)
-        form.addRow("Line width", self.line_width_slider)
+        self.y_min_spin = self._range_spin_box()
+        self.y_max_spin = self._range_spin_box(default=1.0)
+        self.y_min_spin.valueChanged.connect(lambda _value: self._emit_plot_style_changed())
+        self.y_max_spin.valueChanged.connect(lambda _value: self._emit_plot_style_changed())
+
+        form.addRow("X range", self.x_auto_checkbox)
+        form.addRow("X min", self.x_min_spin)
+        form.addRow("X max", self.x_max_spin)
+        form.addRow("Y range", self.y_auto_checkbox)
+        form.addRow("Y min", self.y_min_spin)
+        form.addRow("Y max", self.y_max_spin)
+        self._handle_range_auto_changed(emit=False)
+        return group
+
+    def _build_curve_style_group(self) -> QGroupBox:
+        group = QGroupBox("Selected Curve")
+        form = QFormLayout(group)
+
+        self.curve_label_input = QLineEdit()
+        self.curve_label_input.setEnabled(False)
+        self.curve_label_input.textChanged.connect(self._handle_curve_label_input_changed)
+
+        self.curve_color_button = QPushButton("Color")
+        self.curve_color_button.setEnabled(False)
+        self.curve_color_button.clicked.connect(self._choose_curve_color)
+
+        self.curve_line_style_selector = QComboBox()
+        self.curve_line_style_selector.addItem("Solid", "solid")
+        self.curve_line_style_selector.addItem("Dashed", "dashed")
+        self.curve_line_style_selector.addItem("Dotted", "dotted")
+        self.curve_line_style_selector.addItem("Dash-dot", "dashdot")
+        self.curve_line_style_selector.setEnabled(False)
+        self.curve_line_style_selector.currentIndexChanged.connect(
+            lambda _index: self._emit_curve_style_changed()
+        )
+
+        self.curve_line_weight_spin = QDoubleSpinBox()
+        self.curve_line_weight_spin.setRange(0.5, 5.0)
+        self.curve_line_weight_spin.setSingleStep(0.5)
+        self.curve_line_weight_spin.setDecimals(1)
+        self.curve_line_weight_spin.setSuffix(" px")
+        self.curve_line_weight_spin.setEnabled(False)
+        self.curve_line_weight_spin.valueChanged.connect(
+            lambda _value: self._emit_curve_style_changed()
+        )
+
+        self.curve_marker_selector = QComboBox()
+        self.curve_marker_selector.addItem("None", "none")
+        self.curve_marker_selector.addItem("Circle", "circle")
+        self.curve_marker_selector.addItem("Square", "square")
+        self.curve_marker_selector.addItem("Triangle", "triangle")
+        self.curve_marker_selector.addItem("Cross", "cross")
+        self.curve_marker_selector.setEnabled(False)
+        self.curve_marker_selector.currentIndexChanged.connect(
+            lambda _index: self._emit_curve_style_changed()
+        )
+
+        self.curve_marker_size_spin = QDoubleSpinBox()
+        self.curve_marker_size_spin.setRange(1.0, 20.0)
+        self.curve_marker_size_spin.setSingleStep(0.5)
+        self.curve_marker_size_spin.setDecimals(1)
+        self.curve_marker_size_spin.setEnabled(False)
+        self.curve_marker_size_spin.valueChanged.connect(
+            lambda _value: self._emit_curve_style_changed()
+        )
+
+        self.curve_opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self.curve_opacity_slider.setRange(0, 100)
+        self.curve_opacity_slider.setEnabled(False)
+        self.curve_opacity_slider.valueChanged.connect(
+            lambda _value: self._emit_curve_style_changed()
+        )
+
+        form.addRow("Label", self.curve_label_input)
+        form.addRow("Color", self.curve_color_button)
+        form.addRow("Line style", self.curve_line_style_selector)
+        form.addRow("Line weight", self.curve_line_weight_spin)
+        form.addRow("Marker", self.curve_marker_selector)
+        form.addRow("Marker size", self.curve_marker_size_spin)
+        form.addRow("Opacity", self.curve_opacity_slider)
+        return group
+
+    def _build_global_style_group(self) -> QGroupBox:
+        group = QGroupBox("Global")
+        form = QFormLayout(group)
+
+        self.font_size_spin = QSpinBox()
+        self.font_size_spin.setRange(6, 32)
+        self.font_size_spin.setValue(10)
+        self.font_size_spin.valueChanged.connect(lambda _value: self._emit_plot_style_changed())
+
+        self.grid_checkbox = QCheckBox("Show grid")
+        self.grid_checkbox.setChecked(True)
+        self.grid_checkbox.stateChanged.connect(lambda _state: self._emit_plot_style_changed())
+
+        self.grid_color_button = QPushButton("Grid color")
+        self._grid_color = "#b0b0b0"
+        self._set_color_button(self.grid_color_button, self._grid_color)
+        self.grid_color_button.clicked.connect(self._choose_grid_color)
+
+        self.grid_opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self.grid_opacity_slider.setRange(0, 100)
+        self.grid_opacity_slider.setValue(30)
+        self.grid_opacity_slider.valueChanged.connect(lambda _value: self._emit_plot_style_changed())
+
+        self.reset_styles_button = QPushButton("Reset all styles")
+        self.reset_styles_button.clicked.connect(self.reset_all_styles_requested.emit)
+
+        self.apply_uniform_style_button = QPushButton("Apply uniform style to all curves")
+        self.apply_uniform_style_button.clicked.connect(self.apply_uniform_style_requested.emit)
+
+        form.addRow("Font size", self.font_size_spin)
+        form.addRow("Grid", self.grid_checkbox)
+        form.addRow("Grid color", self.grid_color_button)
+        form.addRow("Grid opacity", self.grid_opacity_slider)
+        form.addRow("", self.reset_styles_button)
+        form.addRow("", self.apply_uniform_style_button)
         return group
 
     def directory_path(self) -> str:
@@ -642,33 +780,42 @@ class ControlsPanel(QWidget):
             "data_start_row": int(self._current_header_info["data_start_row"]),
         }
 
-    def set_curves(self, curves: list[dict]) -> None:
+    def set_curves(self, curves: list[CurveState], selected_curve_id: str | None = None) -> None:
         self._updating_curve_table = True
         self.curve_table.setRowCount(len(curves))
+        selected_row = -1
 
         for row, curve in enumerate(curves):
-            label_item = QTableWidgetItem(str(curve["label"]))
+            if curve.id == selected_curve_id:
+                selected_row = row
+
+            label_item = QTableWidgetItem(curve.label)
             label_item.setFlags(
                 Qt.ItemFlag.ItemIsEnabled
                 | Qt.ItemFlag.ItemIsSelectable
                 | Qt.ItemFlag.ItemIsEditable
             )
-            label_item.setData(Qt.ItemDataRole.UserRole, str(curve["id"]))
+            label_item.setData(Qt.ItemDataRole.UserRole, curve.id)
             self.curve_table.setItem(row, 0, label_item)
 
-            source_item = self._read_only_item(self._truncate_source(str(curve["source_file"])))
-            source_item.setToolTip(str(curve.get("source_path", curve["source_file"])))
+            source_item = self._read_only_item(self._truncate_source(curve.source_file))
+            source_item.setToolTip(curve.source_path)
             self.curve_table.setItem(row, 1, source_item)
-            self.curve_table.setItem(row, 2, self._read_only_item(str(curve["x_param"])))
-            self.curve_table.setItem(row, 3, self._read_only_item(str(curve["y_param"])))
+            self.curve_table.setItem(row, 2, self._read_only_item(curve.x_param))
+            self.curve_table.setItem(row, 3, self._read_only_item(curve.y_param))
 
             delete_button = QPushButton("\u00d7")
             delete_button.setFixedWidth(28)
-            curve_id = str(curve["id"])
+            curve_id = curve.id
             delete_button.clicked.connect(
                 lambda _checked=False, target_id=curve_id: self.curve_delete_requested.emit(target_id)
             )
             self.curve_table.setCellWidget(row, 4, delete_button)
+
+        if selected_row >= 0:
+            self.curve_table.selectRow(selected_row)
+        else:
+            self.curve_table.clearSelection()
 
         self._updating_curve_table = False
 
@@ -680,10 +827,166 @@ class ControlsPanel(QWidget):
             return
         self.curve_label_changed.emit(str(curve_id), item.text().strip())
 
+    def _handle_curve_selection_changed(self) -> None:
+        if self._updating_curve_table:
+            return
+
+        selected_rows = self.curve_table.selectionModel().selectedRows()
+        if not selected_rows:
+            self._selected_curve_id = None
+            self.set_selected_curve(None)
+            return
+
+        item = self.curve_table.item(selected_rows[0].row(), 0)
+        if item is None:
+            return
+        curve_id = str(item.data(Qt.ItemDataRole.UserRole))
+        self._selected_curve_id = curve_id
+        self.curve_selected.emit(curve_id)
+
     def _truncate_source(self, source: str, max_length: int = 24) -> str:
         if len(source) <= max_length:
             return source
         return f"...{source[-(max_length - 3):]}"
+
+    def set_selected_curve(self, curve: CurveState | None) -> None:
+        self._updating_style_controls = True
+        self._selected_curve_id = curve.id if curve is not None else None
+        enabled = curve is not None
+
+        for widget in (
+            self.curve_label_input,
+            self.curve_color_button,
+            self.curve_line_style_selector,
+            self.curve_line_weight_spin,
+            self.curve_marker_selector,
+            self.curve_marker_size_spin,
+            self.curve_opacity_slider,
+        ):
+            widget.setEnabled(enabled)
+
+        if curve is None:
+            self.curve_label_input.setText("")
+            self._set_color_button(self.curve_color_button, "#808080")
+        else:
+            self.curve_label_input.setText(curve.label)
+            self._set_color_button(self.curve_color_button, curve.style.color)
+            self._set_combo_to_data(self.curve_line_style_selector, curve.style.line_style)
+            self.curve_line_weight_spin.setValue(curve.style.line_weight)
+            self._set_combo_to_data(self.curve_marker_selector, curve.style.marker_style)
+            self.curve_marker_size_spin.setValue(curve.style.marker_size)
+            self.curve_opacity_slider.setValue(round(curve.style.opacity * 100))
+
+        self._updating_style_controls = False
+
+    def set_plot_style(self, plot_style: PlotStyleState) -> None:
+        self._updating_plot_style_controls = True
+        self.x_auto_checkbox.setChecked(plot_style.x_range.auto)
+        self.x_min_spin.setValue(plot_style.x_range.minimum)
+        self.x_max_spin.setValue(plot_style.x_range.maximum)
+        self.y_auto_checkbox.setChecked(plot_style.y_range.auto)
+        self.y_min_spin.setValue(plot_style.y_range.minimum)
+        self.y_max_spin.setValue(plot_style.y_range.maximum)
+        self.font_size_spin.setValue(plot_style.font_size)
+        if plot_style.grid is not None:
+            self.grid_checkbox.setChecked(plot_style.grid.enabled)
+            self._grid_color = plot_style.grid.color
+            self._set_color_button(self.grid_color_button, self._grid_color)
+            self.grid_opacity_slider.setValue(round(plot_style.grid.opacity * 100))
+        self._handle_range_auto_changed(emit=False)
+        self._updating_plot_style_controls = False
+
+    def plot_style(self) -> PlotStyleState:
+        return PlotStyleState(
+            x_range=AxisRangeState(
+                auto=self.x_auto_checkbox.isChecked(),
+                minimum=self.x_min_spin.value(),
+                maximum=self.x_max_spin.value(),
+            ),
+            y_range=AxisRangeState(
+                auto=self.y_auto_checkbox.isChecked(),
+                minimum=self.y_min_spin.value(),
+                maximum=self.y_max_spin.value(),
+            ),
+            font_size=self.font_size_spin.value(),
+            grid=GridStyle(
+                enabled=self.grid_checkbox.isChecked(),
+                color=self._grid_color,
+                opacity=self.grid_opacity_slider.value() / 100.0,
+            ),
+        )
+
+    def _range_spin_box(self, default: float = 0.0) -> QDoubleSpinBox:
+        spin_box = QDoubleSpinBox()
+        spin_box.setRange(-1.0e12, 1.0e12)
+        spin_box.setDecimals(6)
+        spin_box.setValue(default)
+        return spin_box
+
+    def _handle_range_auto_changed(self, emit: bool = True) -> None:
+        x_manual = not self.x_auto_checkbox.isChecked()
+        y_manual = not self.y_auto_checkbox.isChecked()
+        self.x_min_spin.setEnabled(x_manual)
+        self.x_max_spin.setEnabled(x_manual)
+        self.y_min_spin.setEnabled(y_manual)
+        self.y_max_spin.setEnabled(y_manual)
+        if emit:
+            self._emit_plot_style_changed()
+
+    def _handle_curve_label_input_changed(self, text: str) -> None:
+        if self._updating_style_controls or self._selected_curve_id is None:
+            return
+        self.curve_label_changed.emit(self._selected_curve_id, text.strip())
+
+    def _choose_curve_color(self) -> None:
+        if self._selected_curve_id is None:
+            return
+        color = QColorDialog.getColor(QColor(self._current_curve_style().color), self)
+        if not color.isValid():
+            return
+        self._set_color_button(self.curve_color_button, color.name())
+        self._emit_curve_style_changed()
+
+    def _choose_grid_color(self) -> None:
+        color = QColorDialog.getColor(QColor(self._grid_color), self)
+        if not color.isValid():
+            return
+        self._grid_color = color.name()
+        self._set_color_button(self.grid_color_button, self._grid_color)
+        self._emit_plot_style_changed()
+
+    def _emit_curve_style_changed(self) -> None:
+        if self._updating_style_controls or self._selected_curve_id is None:
+            return
+        self.curve_style_changed.emit(self._selected_curve_id, self._current_curve_style())
+
+    def _emit_plot_style_changed(self) -> None:
+        if self._updating_plot_style_controls:
+            return
+        self.plot_style_changed.emit(self.plot_style())
+
+    def _current_curve_style(self) -> CurveStyle:
+        return CurveStyle(
+            color=self.curve_color_button.property("color") or "#808080",
+            line_style=self.curve_line_style_selector.currentData(Qt.ItemDataRole.UserRole)
+            or "solid",
+            line_weight=self.curve_line_weight_spin.value(),
+            marker_style=self.curve_marker_selector.currentData(Qt.ItemDataRole.UserRole)
+            or "none",
+            marker_size=self.curve_marker_size_spin.value(),
+            opacity=self.curve_opacity_slider.value() / 100.0,
+        )
+
+    def _set_color_button(self, button: QPushButton, color: str) -> None:
+        button.setProperty("color", color)
+        button.setText(color.upper())
+        button.setStyleSheet(f"background-color: {color};")
+
+    def _set_combo_to_data(self, combo_box: QComboBox, value: str) -> None:
+        for index in range(combo_box.count()):
+            if combo_box.itemData(index, Qt.ItemDataRole.UserRole) == value:
+                combo_box.setCurrentIndex(index)
+                return
 
     def _update_summary(self) -> None:
         total = len(self._files)

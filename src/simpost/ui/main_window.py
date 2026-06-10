@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from copy import deepcopy
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QFileDialog, QMainWindow, QSplitter, QStatusBar
+from PyQt6.QtWidgets import QFileDialog, QMainWindow, QScrollArea, QSplitter, QStatusBar
 
 from simpost.backend.controller import BackendController
+from simpost.ui.plot_models import CurveState, CurveStyle, PlotStyleState
 from simpost.ui.widgets.controls_panel import ControlsPanel
 from simpost.ui.widgets.plot_panel import PlotPanel
 
@@ -36,16 +38,23 @@ class MainWindow(QMainWindow):
         self.backend = backend or BackendController()
         self.controls_panel = ControlsPanel()
         self.plot_panel = PlotPanel()
-        self._curves: list[dict] = []
+        self._curves: list[CurveState] = []
         self._next_curve_id = 1
+        self._selected_curve_id: str | None = None
+        self._plot_style = PlotStyleState.defaults()
 
         self.setWindowTitle("Simulation Post Processor")
         self.resize(1280, 800)
 
+        controls_scroll = QScrollArea()
+        controls_scroll.setWidgetResizable(True)
+        controls_scroll.setWidget(self.controls_panel)
+        controls_scroll.setMinimumWidth(500)
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(self.controls_panel)
+        splitter.addWidget(controls_scroll)
         splitter.addWidget(self.plot_panel)
-        splitter.setSizes([460, 820])
+        splitter.setSizes([520, 760])
 
         self.setCentralWidget(splitter)
         self.setStatusBar(QStatusBar())
@@ -54,6 +63,7 @@ class MainWindow(QMainWindow):
         self._build_menu()
         self._build_toolbar()
         self._connect_signals()
+        self.controls_panel.set_plot_style(self._plot_style)
 
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
@@ -107,6 +117,11 @@ class MainWindow(QMainWindow):
         )
         self.controls_panel.curve_label_changed.connect(self._rename_curve)
         self.controls_panel.curve_delete_requested.connect(self._delete_curve)
+        self.controls_panel.curve_selected.connect(self._select_curve)
+        self.controls_panel.curve_style_changed.connect(self._update_curve_style)
+        self.controls_panel.plot_style_changed.connect(self._update_plot_style)
+        self.controls_panel.reset_all_styles_requested.connect(self._reset_all_styles)
+        self.controls_panel.apply_uniform_style_requested.connect(self._apply_uniform_style)
         self.controls_panel.selection_changed.connect(self._update_selection_status)
         self.controls_panel.file_highlighted.connect(self._parse_highlighted_file_headers)
         self.controls_panel.header_config_changed.connect(self._parse_selected_file_headers)
@@ -271,37 +286,86 @@ class MainWindow(QMainWindow):
 
         plot_data["x_label"] = selection["x_label"]
         plot_data["y_label"] = selection["y_label"]
-        curve = {
-            "id": f"curve-{self._next_curve_id}",
-            "label": curve_label,
-            "source_file": selection["filename"],
-            "source_path": selection["filepath"],
-            "x_param": selection["x_display"],
-            "y_param": selection["y_display"],
-            "x": plot_data["x"],
-            "y": plot_data["y"],
-            "x_label": plot_data["x_label"],
-            "y_label": plot_data["y_label"],
-            "color": COLORBLIND_SAFE_PALETTE[
+        default_style = CurveStyle(
+            color=COLORBLIND_SAFE_PALETTE[
                 (self._next_curve_id - 1) % len(COLORBLIND_SAFE_PALETTE)
-            ],
-        }
+            ]
+        )
+        curve = CurveState(
+            id=f"curve-{self._next_curve_id}",
+            label=curve_label,
+            source_file=selection["filename"],
+            source_path=selection["filepath"],
+            x_param=selection["x_display"],
+            y_param=selection["y_display"],
+            x=list(plot_data["x"]),
+            y=list(plot_data["y"]),
+            x_label=plot_data["x_label"],
+            y_label=plot_data["y_label"],
+            style=deepcopy(default_style),
+            default_style=default_style,
+        )
         self._next_curve_id += 1
         self._curves.append(curve)
+        self._selected_curve_id = curve.id
         return True
 
     def _rename_curve(self, curve_id: str, label: str) -> None:
         for curve in self._curves:
-            if curve["id"] == curve_id:
-                curve["label"] = label or str(curve["label"])
+            if curve.id == curve_id:
+                curve.label = label or curve.label
                 break
         self._refresh_curve_views()
 
     def _delete_curve(self, curve_id: str) -> None:
-        self._curves = [curve for curve in self._curves if curve["id"] != curve_id]
+        self._curves = [curve for curve in self._curves if curve.id != curve_id]
+        if self._selected_curve_id == curve_id:
+            self._selected_curve_id = self._curves[-1].id if self._curves else None
         self._refresh_curve_views()
         self.statusBar().showMessage("Curve removed.")
 
     def _refresh_curve_views(self) -> None:
-        self.controls_panel.set_curves(self._curves)
-        self.plot_panel.render_curves(self._curves)
+        if self._selected_curve_id is not None and not self._curve_by_id(self._selected_curve_id):
+            self._selected_curve_id = self._curves[-1].id if self._curves else None
+
+        self.controls_panel.set_curves(self._curves, self._selected_curve_id)
+        self.controls_panel.set_selected_curve(self._curve_by_id(self._selected_curve_id))
+        self.plot_panel.render_curves(self._curves, self._plot_style)
+
+    def _select_curve(self, curve_id: str) -> None:
+        self._selected_curve_id = curve_id
+        self.controls_panel.set_selected_curve(self._curve_by_id(curve_id))
+
+    def _update_curve_style(self, curve_id: str, style: CurveStyle) -> None:
+        curve = self._curve_by_id(curve_id)
+        if curve is None:
+            return
+        curve.style = style
+        self._refresh_curve_views()
+
+    def _update_plot_style(self, plot_style: PlotStyleState) -> None:
+        self._plot_style = plot_style
+        self.plot_panel.render_curves(self._curves, self._plot_style)
+
+    def _reset_all_styles(self) -> None:
+        for curve in self._curves:
+            curve.style = deepcopy(curve.default_style)
+        self._refresh_curve_views()
+        self.statusBar().showMessage("Curve styles reset.")
+
+    def _apply_uniform_style(self) -> None:
+        source_curve = self._curve_by_id(self._selected_curve_id)
+        if source_curve is None:
+            self.statusBar().showMessage("Select a curve before applying a uniform style.")
+            return
+
+        uniform_style = deepcopy(source_curve.style)
+        for curve in self._curves:
+            curve.style = deepcopy(uniform_style)
+        self._refresh_curve_views()
+        self.statusBar().showMessage("Uniform style applied to all curves.")
+
+    def _curve_by_id(self, curve_id: str | None) -> CurveState | None:
+        if curve_id is None:
+            return None
+        return next((curve for curve in self._curves if curve.id == curve_id), None)

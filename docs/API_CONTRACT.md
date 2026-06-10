@@ -110,6 +110,14 @@ Frontend curve behavior:
 - The application state owns the curve list, including label, source file, x parameter, y parameter, numeric arrays, display labels, and color.
 - The plot redraws from the curve list whenever curves are added, renamed, or deleted.
 
+Curve and style state:
+
+- `CurveStyle`: color, line style, line weight, marker style, marker size, and opacity.
+- `CurveState`: curve id, editable label, source file/path, x/y parameter names, numeric arrays, display labels, current style, and default style.
+- `PlotStyleState`: X/Y range state, font size, and grid style.
+- These are defined as Python dataclasses in `src/simpost/ui/plot_models.py`.
+- Per-curve styles, axis ranges, font size, and grid state redraw the plot immediately when changed.
+
 ### `get_plot_defaults(dataset_id: str) -> PlotDefaults`
 
 Returns suggested plotting defaults for a dataset.
