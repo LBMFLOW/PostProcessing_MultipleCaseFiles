@@ -96,13 +96,10 @@ class PlotPanel(QWidget):
 
     def _add_trace_action(self):
         self.toolbar.addSeparator()
-        action = self.toolbar.addAction(
-            self._trace_icon(),
-            "Trace selected curve",
-            self._handle_trace_action_toggled,
-        )
+        action = self.toolbar.addAction(self._trace_icon(), "Trace selected curve")
         action.setCheckable(True)
         action.setToolTip("Trace selected curve values")
+        action.triggered.connect(self._handle_trace_action_toggled)
         return action
 
     def _trace_icon(self) -> QIcon:
@@ -344,7 +341,9 @@ class PlotPanel(QWidget):
         self._refresh_trace_overlay()
         self.canvas.draw_idle()
 
-    def _handle_trace_action_toggled(self, checked: bool) -> None:
+    def _handle_trace_action_toggled(self, checked: bool | None = None) -> None:
+        if checked is None:
+            checked = self._trace_action.isChecked()
         self._trace_enabled = checked
         self._trace_dragging = False
         if checked:
