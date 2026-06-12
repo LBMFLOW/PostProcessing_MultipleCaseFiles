@@ -136,7 +136,7 @@ The Plot Configuration panel supports two multi-curve modes:
 
 Use `Reset plot area and add curves` after changing X/Y parameters when you want a new figure instead of adding the new curves to the existing plot. This clears current curves, resets X/Y ranges to Auto, clears X/Y title overrides, and then adds curves using the current selection.
 
-Use the trace button on the plot toolbar to inspect values on the selected curve. Click or drag across the plot while tracing is active to move the X-axis value tag; the Y-axis value tag follows the selected curve and dashed guides mark the intersection.
+Use the trace button on the plot toolbar to inspect values on the selected curve. Click or drag across the plot while tracing is active to move the X-axis value tag; the Y-axis value tag follows the selected curve and dashed guides mark the intersection. Double-click the yellow X tag to enter a numeric X value, or right-click it and choose `Save y-axis values` to export the current Y values for plotted curves to CSV.
 
 Use `Select all files` above the file list to check or uncheck large batches at once. Header Configuration can optionally read default curve-label prefix text from a user-selected row in each data file. A single non-empty label cell is reused for every plotted variable from that file.
 

@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import bisect
+import csv
 import math
+import re
 import textwrap
+from pathlib import Path
 
 import matplotlib.patheffects as path_effects
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.transforms import blended_transform_factory
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QPoint, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
-from PyQt6.QtWidgets import QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFileDialog, QLineEdit, QMenu, QMessageBox, QVBoxLayout, QWidget
 
 from simpost.ui.plot_models import CurveState, LegendStyle, PlotStyleState
 
@@ -74,6 +77,7 @@ class PlotPanel(QWidget):
         self._lines: list[Line2D] = []
         self._legend_artist_to_line: dict[object, Line2D] = {}
         self._line_to_curve_id: dict[Line2D, str] = {}
+        self._line_to_curve: dict[Line2D, CurveState] = {}
         self._curve_visibility: dict[str, bool] = {}
         self._last_legend_style: LegendStyle | None = None
         self._last_font_size = 10
@@ -82,6 +86,7 @@ class PlotPanel(QWidget):
         self._trace_dragging = False
         self._trace_x_value: float | None = None
         self._trace_artists: dict[str, object] = {}
+        self._trace_value_editor: QLineEdit | None = None
         self._trace_action = self._add_trace_action()
         self._set_empty_state()
         self.canvas.mpl_connect("pick_event", self._handle_pick)
@@ -141,6 +146,7 @@ class PlotPanel(QWidget):
         self._lines = []
         self._legend_artist_to_line.clear()
         self._line_to_curve_id.clear()
+        self._line_to_curve.clear()
         self._selected_curve_id = selected_curve_id
 
         if not curves:
@@ -201,6 +207,7 @@ class PlotPanel(QWidget):
                 )
             self._lines.append(line)
             self._line_to_curve_id[line] = curve_id
+            self._line_to_curve[line] = curve
             self._curve_visibility[curve_id] = visible
 
         self.axes.relim()
@@ -352,9 +359,18 @@ class PlotPanel(QWidget):
             self._clear_trace_overlay()
 
     def _handle_trace_press(self, event: object) -> None:
+        if self._trace_enabled and self._event_over_trace_x_label(event):
+            button = self._event_button(event)
+            if button == 3:
+                self._show_trace_context_menu(event)
+                return
+            if button == 1 and bool(getattr(event, "dblclick", False)):
+                self._start_trace_value_editor()
+                return
+
         if not self._can_handle_trace_mouse_event(event):
             return
-        if getattr(event, "button", None) not in (1, None):
+        if self._event_button(event) not in (1, None):
             return
         self._trace_dragging = True
         self._update_trace_overlay(float(getattr(event, "xdata")))
@@ -379,6 +395,10 @@ class PlotPanel(QWidget):
         if self._toolbar_mode_active():
             return False
         return self._trace_curve_line() is not None
+
+    def _event_button(self, event: object) -> int | None:
+        button = getattr(event, "button", None)
+        return getattr(button, "value", button)
 
     def _toolbar_mode_active(self) -> bool:
         mode = getattr(self.toolbar, "mode", "")
@@ -523,6 +543,7 @@ class PlotPanel(QWidget):
         y_label.set_text(self._format_trace_value(y_value))
 
     def _clear_trace_overlay(self, draw: bool = True) -> None:
+        self._discard_trace_value_editor()
         for artist in self._trace_artists.values():
             try:
                 artist.remove()
@@ -531,6 +552,137 @@ class PlotPanel(QWidget):
         self._trace_artists.clear()
         if draw:
             self.canvas.draw_idle()
+
+    def _event_over_trace_x_label(self, event: object) -> bool:
+        x_label = self._trace_artists.get("x_label")
+        if x_label is None or getattr(event, "x", None) is None or getattr(event, "y", None) is None:
+            return False
+        renderer = self.canvas.get_renderer()
+        bbox = x_label.get_window_extent(renderer=renderer).expanded(1.35, 1.8)
+        return bool(bbox.contains(float(getattr(event, "x")), float(getattr(event, "y"))))
+
+    def _start_trace_value_editor(self) -> None:
+        x_label = self._trace_artists.get("x_label")
+        if x_label is None:
+            return
+
+        self._discard_trace_value_editor()
+        renderer = self.canvas.get_renderer()
+        bbox = x_label.get_window_extent(renderer=renderer).expanded(1.25, 1.5)
+        canvas_height = self.canvas.height()
+        x_pos = max(0, int(bbox.x0))
+        y_pos = max(0, int(canvas_height - bbox.y1))
+        width = max(72, int(bbox.width))
+        height = max(24, int(bbox.height))
+
+        editor = QLineEdit(self.canvas)
+        editor.setText(x_label.get_text())
+        editor.selectAll()
+        editor.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        editor.setStyleSheet(
+            "QLineEdit { background-color: #fff36a; border: 1px solid #b7aa00; }"
+        )
+        editor.setGeometry(x_pos, y_pos, width, height)
+        editor.returnPressed.connect(self._commit_trace_value_editor)
+        editor.editingFinished.connect(self._commit_trace_value_editor)
+        editor.show()
+        editor.setFocus(Qt.FocusReason.MouseFocusReason)
+        self._trace_value_editor = editor
+
+    def _commit_trace_value_editor(self) -> None:
+        editor = self._trace_value_editor
+        if editor is None:
+            return
+
+        text = editor.text().strip()
+        self._discard_trace_value_editor()
+        try:
+            x_value = float(text)
+        except ValueError:
+            self._refresh_trace_overlay()
+            return
+
+        x_min, x_max = sorted(self.axes.get_xlim())
+        if x_value < x_min or x_value > x_max:
+            self._refresh_trace_overlay()
+            return
+
+        self._update_trace_overlay(x_value)
+
+    def _discard_trace_value_editor(self) -> None:
+        if self._trace_value_editor is None:
+            return
+        editor = self._trace_value_editor
+        self._trace_value_editor = None
+        editor.hide()
+        editor.deleteLater()
+
+    def _show_trace_context_menu(self, event: object) -> None:
+        menu = QMenu(self)
+        save_action = menu.addAction("Save y-axis values")
+        save_action.triggered.connect(self._save_trace_values_to_csv)
+        menu.exec(self._trace_context_menu_position(event))
+
+    def _trace_context_menu_position(self, event: object) -> QPoint:
+        gui_event = getattr(event, "guiEvent", None)
+        if gui_event is not None and hasattr(gui_event, "globalPosition"):
+            return gui_event.globalPosition().toPoint()
+        x_pos = int(getattr(event, "x", 0) or 0)
+        y_pos = self.canvas.height() - int(getattr(event, "y", 0) or 0)
+        return self.canvas.mapToGlobal(QPoint(x_pos, y_pos))
+
+    def _save_trace_values_to_csv(self) -> None:
+        if self._trace_x_value is None:
+            self._refresh_trace_overlay()
+        if self._trace_x_value is None:
+            return
+
+        output_path, _selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Save y-axis values",
+            self._default_trace_csv_filename(),
+            "CSV Files (*.csv)",
+        )
+        if not output_path:
+            return
+
+        path = Path(output_path)
+        if path.suffix.lower() != ".csv":
+            path = path.with_suffix(".csv")
+
+        try:
+            with path.open("w", newline="", encoding="utf-8") as output_file:
+                writer = csv.writer(output_file)
+                writer.writerow([self.axes.get_xlabel() or "Curve", self.axes.get_ylabel() or "Y"])
+                writer.writerows(self._trace_csv_rows())
+        except OSError as exc:
+            QMessageBox.warning(self, "Save y-axis values", str(exc))
+
+    def _trace_csv_rows(self) -> list[list[str]]:
+        if self._trace_x_value is None:
+            return []
+
+        rows: list[list[str]] = []
+        for line in self._lines:
+            x_values, y_values = self._clean_trace_points(line)
+            if not x_values:
+                continue
+            y_value = self._interpolate_y_value(x_values, y_values, self._trace_x_value)
+            rows.append([line.get_label(), self._format_trace_value(y_value)])
+        return rows
+
+    def _default_trace_csv_filename(self) -> str:
+        trace_line = self._trace_curve_line()
+        trace_curve = self._line_to_curve.get(trace_line) if trace_line is not None else None
+        x_label = self._safe_filename_part(self.axes.get_xlabel() or "x")
+        y_label = self._safe_filename_part(
+            trace_curve.y_param if trace_curve is not None else self.axes.get_ylabel() or "y"
+        )
+        x_value = self._safe_filename_part(self._format_trace_value(self._trace_x_value or 0.0))
+        return f"{y_label}@{x_label}={x_value}.csv"
+
+    def _safe_filename_part(self, value: str) -> str:
+        return re.sub(r"[^A-Za-z0-9_.=-]+", "_", value.strip()).strip("._") or "value"
 
     def _clean_trace_points(self, line: Line2D) -> tuple[list[float], list[float]]:
         points: list[tuple[float, float]] = []
